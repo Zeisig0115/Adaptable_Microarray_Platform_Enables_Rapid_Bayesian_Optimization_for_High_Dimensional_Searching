@@ -341,7 +341,7 @@ def main():
         raw_samples=1024,    # default 512
     )
 
-    output_filename = f"./Apr_29_full_log/ESS_BO_1_HRP_0.0001.csv"
+    output_filename = f"./Apr_29_full_log/ESS_BO_2_HRP_1.csv"
     final_output_path = output_filename
 
     _save_results(rows, predicted_values, uncertainties, essentials, final_output_path)

@@ -80,9 +80,9 @@ def trim1_mean_by_mad(x: pd.Series) -> float:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Convert frame-wise blueness curves into BO data.xlsx with TMB, H2O2, AUC.")
-    parser.add_argument("--input", default="./Apr_29_full_log/LHS_all_data.xlsx")
-    parser.add_argument("--output", default="data.xlsx", help="Output Excel file. Default: data.xlsx")
-    parser.add_argument("--hrp", type=float, default=0.0001, help="HRP value to keep. Required if the input has multiple HRP levels.")
+    parser.add_argument("--input", default="./Apr_29_full_log/raw_data_BO1.xlsx")
+    parser.add_argument("--output", default="data2.xlsx", help="Output Excel file. Default: data.xlsx")
+    parser.add_argument("--hrp", type=float, default=1, help="HRP value to keep. Required if the input has multiple HRP levels.")
     parser.add_argument(
         "--agg",
         choices=["median", "mean", "trim1_mean"],

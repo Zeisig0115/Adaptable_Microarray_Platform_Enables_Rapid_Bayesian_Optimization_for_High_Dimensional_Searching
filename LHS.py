@@ -41,14 +41,14 @@ print("-" * 30)
 
 
 config_2d = {
-    'TMB': [-3.0, 0.0],
-    'H2O2': [-3.0, 0.0]
+    'TMB': [-2.301, 0.0],
+    'H2O2': [-2.301, 0.0]
 }
 
 hrp_levels = [1.0, 0.01, 0.0001]
 base_seed = 40
 
 for i, hrp in enumerate(hrp_levels):
-    file_name = f'./full_log/LHS_log10_HRP_{hrp}.csv'
+    file_name = f'./May_5_full_log/LHS_log10_HRP_{hrp}.csv'
     df = generate_lhs_samples(config_2d, n_samples=32, seed=base_seed + i, output_file=file_name)
     print(f"HRP={hrp} 组已生成，Seed={base_seed + i}")

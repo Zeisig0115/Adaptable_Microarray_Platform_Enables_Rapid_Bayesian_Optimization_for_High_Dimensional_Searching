@@ -213,7 +213,7 @@ class EssentialsBO:
             q=q,
             num_restarts=num_restarts,
             raw_samples=raw_samples,
-            sequential=False,
+            sequential=True,
         )
 
         with torch.no_grad():
@@ -235,7 +235,7 @@ class EssentialsBO:
 
 def _setup_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="必需品浓度组合的贝叶斯优化脚本")
-    parser.add_argument("--datafile", type=str, default="data.xlsx", help="包含历史数据的CSV或Excel文件路径")
+    parser.add_argument("--datafile", type=str, default="May_5_full_log/LHS_HRP_0.0001_res.xlsx", help="包含历史数据的CSV或Excel文件路径")
     parser.add_argument("--target", type=str, default="AUC", help="文件中的目标列名")
     parser.add_argument("--seed", type=int, default=42, help="全局随机种子")
     parser.add_argument("--device", choices=["auto", "cpu", "cuda"], default="cuda", help="计算设备")
@@ -309,8 +309,8 @@ def main():
     assert args.target in df.columns, f"目标列 '{args.target}' 在文件中不存在。"
 
     physical_bounds = {
-        "TMB": (0.001, 1.0),
-        "H2O2": (0.001, 1.0)
+        "TMB": (0.005, 1.0),
+        "H2O2": (0.005, 1.0)
     }
 
     bo = EssentialsBO(
@@ -341,7 +341,7 @@ def main():
         raw_samples=1024,    # default 512
     )
 
-    output_filename = f"./Apr_29_full_log/ESS_BO_2_HRP_1.csv"
+    output_filename = f"./May_5_full_log/ESS_BO_1_HRP_0.0001_seq.csv"
     final_output_path = output_filename
 
     _save_results(rows, predicted_values, uncertainties, essentials, final_output_path)

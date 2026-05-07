@@ -179,7 +179,7 @@ def main() -> None:
         help="Do not filter HRP; keep all HRP levels.",
     )
     parser.add_argument("--baseline", type=float, default=22.0, help="Baseline intensity to subtract before feature extraction.")
-    parser.add_argument("--signal_threshold", type=float, default=15.0,)
+    parser.add_argument("--signal_threshold", type=float, default=5.0)
     parser.add_argument("--retention_last_n", type=int, default=5, help="Number of final frames used for retention.")
     parser.add_argument("--smooth_window", type=int, default=5, help="Odd window size for centered moving-average smoothing.")
     parser.add_argument("--auc_method", choices=["trapz", "sum"], default="trapz")

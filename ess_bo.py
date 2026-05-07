@@ -95,7 +95,7 @@ class EssentialsBO:
         print("模型拟合完成。")
 
         self._print_kernel_diagnostics()
-        self._print_loo_diagnostics()
+        # self._print_loo_diagnostics()
 
 
     def _print_kernel_diagnostics(self) -> None:
@@ -235,7 +235,7 @@ class EssentialsBO:
 
 def _setup_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="必需品浓度组合的贝叶斯优化脚本")
-    parser.add_argument("--datafile", type=str, default="May_5_full_log/LHS_HRP_0.0001_res.xlsx", help="包含历史数据的CSV或Excel文件路径")
+    parser.add_argument("--datafile", type=str, default="May_5_full_log/LHS_HRP_1_rep.xlsx", help="包含历史数据的CSV或Excel文件路径")
     parser.add_argument("--target", type=str, default="AUC", help="文件中的目标列名")
     parser.add_argument("--seed", type=int, default=42, help="全局随机种子")
     parser.add_argument("--device", choices=["auto", "cpu", "cuda"], default="cuda", help="计算设备")
@@ -341,7 +341,7 @@ def main():
         raw_samples=1024,    # default 512
     )
 
-    output_filename = f"./May_5_full_log/ESS_BO_1_HRP_0.0001_seq.csv"
+    output_filename = f"./May_5_full_log/ESS_BO_1_HRP_1_seq.csv"
     final_output_path = output_filename
 
     _save_results(rows, predicted_values, uncertainties, essentials, final_output_path)

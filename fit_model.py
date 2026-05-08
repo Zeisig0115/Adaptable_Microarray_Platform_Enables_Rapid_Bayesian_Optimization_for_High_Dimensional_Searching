@@ -17,6 +17,26 @@ from botorch.models.map_saas import add_saas_prior
 
 from botorch.models import MixedSingleTaskGP
 
+from math import log, sqrt
+from gpytorch.kernels import MaternKernel
+from gpytorch.priors import LogNormalPrior
+from gpytorch.constraints import GreaterThan
+
+SQRT2 = sqrt(2)
+SQRT3 = sqrt(3)
+
+def matern_with_hvarfner_prior(ard_num_dims: int, nu: float = 1.5):
+    ls_prior = LogNormalPrior(loc=SQRT2 + log(ard_num_dims) * 0.5, scale=SQRT3)
+    base_kernel = MaternKernel(
+        nu=nu,
+        ard_num_dims=ard_num_dims,
+        lengthscale_prior=ls_prior,
+        lengthscale_constraint=GreaterThan(
+            2.5e-2, transform=None, initial_value=ls_prior.mode
+        ),
+    )
+    return base_kernel
+
 
 def _set_seeds(seed: int):
     torch.manual_seed(seed)
@@ -71,6 +91,7 @@ def fit_gp(
         model = SingleTaskGP(
             train_X=X_tr,
             train_Y=y_tr,
+            covar_module=matern_with_hvarfner_prior(d, nu=0.5),
             input_transform=Normalize(d=d, bounds=bounds),
             outcome_transform=Standardize(m=1),
         ).to(dev)

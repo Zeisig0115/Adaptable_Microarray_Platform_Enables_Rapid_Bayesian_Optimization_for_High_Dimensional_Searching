@@ -3,6 +3,7 @@ import os
 import json
 import argparse
 import random
+import re
 from pathlib import Path
 from typing import Dict, List, Tuple, Any, Optional
 
@@ -10,7 +11,7 @@ import numpy as np
 import pandas as pd
 import torch
 
-from fit_model import fit_gp
+from fit_model import fit_gp, matern_with_hvarfner_prior
 
 from botorch.acquisition.logei import qLogExpectedImprovement, qLogNoisyExpectedImprovement
 from botorch.acquisition.monte_carlo import qUpperConfidenceBound
@@ -36,6 +37,14 @@ def set_seeds(seed: int = 42):
 def _ensure_2d_y(y: np.ndarray | List[float]) -> np.ndarray:
     y = np.asarray(y)
     return y.reshape(-1, 1) if y.ndim == 1 else y
+
+
+def _parse_hrp_from_filename(datafile: str) -> str:
+    """从形如 'LHS_HRP_0_0001_res.xlsx' 提取 '0_0001'。"""
+    m = re.search(r"HRP[_-](\d+(?:[_.]\d+)?)", Path(datafile).stem, flags=re.IGNORECASE)
+    if m is None:
+        return "unknown"
+    return m.group(1)
 
 
 class EssentialsBO:
@@ -140,41 +149,51 @@ class EssentialsBO:
         print(f"  lengthscale: {covar.lengthscale.detach().cpu()}")
         print(f"  outputscale: 1.0 (fixed, no ScaleKernel wrapper)")
 
-
     def _print_loo_diagnostics(self) -> None:
-        """Leave-one-out 交叉验证，用 z-score 判断 posterior 是否 over-confident。"""
+        """按条件分组的 LOO：留出整组 replicate，避免泄露。"""
         from botorch.models import SingleTaskGP
         from botorch.models.transforms import Standardize, Normalize
         from gpytorch.mlls import ExactMarginalLogLikelihood
         from botorch.fit import fit_gpytorch_mll
 
         n, d = self.Z.shape
+
+        # 用 numpy 找出 unique 条件并记录每行属于哪一组
+        Z_np = self.Z.cpu().numpy()
+        _, group_ids = np.unique(Z_np, axis=0, return_inverse=True)
+        n_groups = int(group_ids.max()) + 1
+
         z_scores = np.zeros(n)
-        print(f"\n[LOO 交叉验证] n={n}，正在逐点重拟合...")
+        print(f"\n[Group-LOO 交叉验证] n_groups={n_groups} (每组 {n // n_groups} replicate)，正在逐组重拟合...")
 
-        for i in range(n):
-            mask = torch.ones(n, dtype=torch.bool, device=self.device)
-            mask[i] = False
-            X_i, y_i = self.Z[mask], self.y[mask]
+        for g in range(n_groups):
+            test_idx = np.where(group_ids == g)[0]
+            train_idx = np.where(group_ids != g)[0]
 
-            m_i = SingleTaskGP(
-                train_X=X_i,
-                train_Y=y_i,
+            X_tr = self.Z[train_idx]
+            y_tr = self.y[train_idx]
+            X_te = self.Z[test_idx]
+            y_te = self.y[test_idx].squeeze(-1).cpu().numpy()
+
+            m_g = SingleTaskGP(
+                train_X=X_tr,
+                train_Y=y_tr,
+                covar_module=matern_with_hvarfner_prior(d, nu=0.5),
                 input_transform=Normalize(d=d, bounds=self.bounds),
                 outcome_transform=Standardize(m=1),
             ).to(self.device)
-            fit_gpytorch_mll(ExactMarginalLogLikelihood(m_i.likelihood, m_i))
+            fit_gpytorch_mll(ExactMarginalLogLikelihood(m_g.likelihood, m_g))
 
             with torch.no_grad():
-                post = m_i.posterior(self.Z[i:i + 1], observation_noise=True)
-                mu = post.mean.item()
-                sd = post.variance.sqrt().item()
-            z_scores[i] = (self.y[i].item() - mu) / max(sd, 1e-12)
+                post = m_g.posterior(X_te, observation_noise=True)
+                mu = post.mean.squeeze(-1).cpu().numpy()
+                sd = post.variance.sqrt().squeeze(-1).cpu().numpy()
+            z_scores[test_idx] = (y_te - mu) / np.maximum(sd, 1e-12)
 
-        print(f"  LOO z-score mean:     {z_scores.mean():+.2f}  (期望 ≈ 0)")
-        print(f"  LOO z-score std:      {z_scores.std():.2f}   (期望 ≈ 1，>1 即 over-confident)")
-        print(f"  |z| > 2 的比例:        {(np.abs(z_scores) > 2).mean():.1%}  (期望 ≈ 5%)")
-        print(f"  |z| > 3 的比例:        {(np.abs(z_scores) > 3).mean():.1%}  (期望 ≈ 0.3%)")
+        print(f"  Group-LOO z-score mean:  {z_scores.mean():+.2f}  (期望 ≈ 0)")
+        print(f"  Group-LOO z-score std:   {z_scores.std():.2f}   (>1 即外推 over-confident)")
+        print(f"  |z| > 2 比例:             {(np.abs(z_scores) > 2).mean():.1%}  (期望 ≈ 5%)")
+        print(f"  |z| > 3 比例:             {(np.abs(z_scores) > 3).mean():.1%}  (期望 ≈ 0.3%)")
 
         print("|z| > 2 的点:")
         for i in np.where(np.abs(z_scores) > 2)[0]:
@@ -341,10 +360,10 @@ def main():
         raw_samples=1024,    # default 512
     )
 
-    output_filename = f"./May_5_full_log/ESS_BO_1_HRP_1_joint.csv"
-    final_output_path = output_filename
+    hrp_tag = _parse_hrp_from_filename(args.datafile)
+    output_filename = f"./May_5_full_log/ESS_BO_1_HRP_{hrp_tag}_Matern_0.5.csv"
 
-    _save_results(rows, predicted_values, uncertainties, essentials, final_output_path)
+    _save_results(rows, predicted_values, uncertainties, essentials, output_filename)
 
     print(f"\n[配置回顾]")
     print(f"  - 设备: {bo.device}, 模型: {args.model}")

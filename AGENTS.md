@@ -1,5 +1,27 @@
 # Project instructions
 
+## Core rule: keep routine tasks lightweight
+
+For ordinary coding tasks, prefer a focused edit with minimal exploration.
+
+Do not perform broad repository exploration, deep BoTorch/GPyTorch source tracing, or full Bayesian optimization workflow analysis unless the user explicitly asks for it or the task clearly requires it.
+
+Examples of ordinary tasks:
+
+- fix a syntax error
+- refactor a small function
+- add logging
+- adjust a script path
+- run a specific test
+- explain a local code snippet
+- make a small plotting or preprocessing change
+
+For these tasks:
+
+- inspect only the directly relevant project files
+- run the smallest useful command or test
+- report what changed and what was or was not tested
+
 ## Python environment
 
 Always run Python code in this project with:
@@ -28,9 +50,27 @@ When a one-line Python command is needed, use:
 & 'C:\anaconda3\envs\botorch\python.exe' -c "..."
 ```
 
-## BoTorch and GPyTorch source inspection
+## Escalation rule: when to inspect BoTorch / GPyTorch internals
 
-When editing, debugging, or analyzing code that uses BoTorch, inspect the installed BoTorch package in this exact environment instead of guessing API details from memory.
+Only perform deep inspection of installed BoTorch and GPyTorch internals when the user is asking a serious technical, academic, or model-behavior question.
+
+Trigger deep inspection for questions about:
+
+- whether a prior, likelihood, kernel, transform, sampler, acquisition function, or optimizer setting is appropriate
+- how `SingleTaskGP`, likelihood construction, priors, transforms, acquisition functions, or optimizer internals actually work
+- why a Bayesian optimization result happened
+- whether the modeling assumptions are statistically or academically defensible
+- comparison between implementation behavior and theory
+- debugging behavior that depends on BoTorch or GPyTorch defaults
+- preparing explanations for papers, reports, theses, or serious research discussion
+
+Do not trigger deep inspection for simple mechanical edits unless the edit directly depends on those internals.
+
+If the task may or may not require deep inspection, choose the lighter path first. Escalate only when the correctness of the answer depends on exact BoTorch/GPyTorch implementation details or when the user asks for rigorous academic analysis.
+
+## BoTorch and GPyTorch source inspection protocol
+
+When deep inspection is triggered, inspect the installed BoTorch package in this exact environment instead of guessing API details from memory.
 
 Start by confirming the installed package location:
 
@@ -44,18 +84,9 @@ Expected location for this project environment:
 C:\anaconda3\envs\botorch\Lib\site-packages\botorch
 ```
 
-Do not stop at the top-level API when the behavior depends on defaults, helper functions, priors, transforms, samplers, acquisition functions, or optimizer internals. Follow the relevant call chain into the installed BoTorch source code, and when necessary into the installed GPyTorch source code.
+Trace only the implementation path relevant to the user's question.
 
-This especially applies to:
-
-- model construction, including `SingleTaskGP`
-- likelihood construction and noise models
-- kernel, lengthscale, outputscale, and noise priors
-- input and outcome transforms
-- acquisition functions such as `qLogNoisyExpectedImprovement`
-- acquisition optimizer behavior
-- posterior sampling and cached root decomposition behavior
-- constraints and feasibility handling
+Do not stop at the top-level API when the answer depends on defaults, helper functions, priors, transforms, samplers, acquisition functions, optimizer internals, posterior behavior, or cached computations.
 
 For example, when analyzing `SingleTaskGP`, inspect:
 
@@ -77,7 +108,21 @@ For acquisition-function analysis, inspect the actual installed implementation. 
 C:\anaconda3\envs\botorch\Lib\site-packages\botorch\acquisition\logei.py
 ```
 
-When explaining source-dependent behavior to the user, mention the specific installed source files inspected and summarize the relevant implementation path. Prefer concrete statements such as "I inspected `...logei.py` around `qLogNoisyExpectedImprovement.__init__`, `_init_baseline`, and `_get_samples_and_objectives`" over generic statements like "according to BoTorch."
+When explaining source-dependent behavior to the user, mention the specific installed source files inspected and summarize the relevant implementation path.
+
+Prefer concrete statements such as:
+
+```text
+I inspected `...logei.py` around `qLogNoisyExpectedImprovement.__init__`, `_init_baseline`, and `_get_samples_and_objectives`.
+```
+
+Avoid generic statements such as:
+
+```text
+according to BoTorch
+```
+
+unless the relevant implementation path has actually been inspected.
 
 ## Data-aware Bayesian optimization analysis
 
@@ -96,16 +141,49 @@ For questions about whether a prior is appropriate for a specific dataset, such 
 - outliers or failed evaluations
 - whether the model is fit with fixed noise or inferred noise
 
-When analyzing the Bayesian Optimization workflow, connect source-code behavior back to this project's flow. For example, if `ess_bo` calls `fit_model`, and `fit_model` constructs a `SingleTaskGP`, trace how that model is built, how it is fit, how its posterior is used by the acquisition function, and how candidate generation uses the acquisition value.
+When analyzing the Bayesian optimization workflow, connect source-code behavior back to this project's flow. For example, if `ess_bo` calls `fit_model`, and `fit_model` constructs a `SingleTaskGP`, trace how that model is built, how it is fit, how its posterior is used by the acquisition function, and how candidate generation uses the acquisition value.
+
+Do not perform this full data-aware analysis for ordinary mechanical edits unless the edit changes model behavior, preprocessing, fitting, acquisition optimization, or candidate generation.
 
 ## Reporting expectations
 
-When the user asks for analysis involving BoTorch behavior, include enough provenance for the user to verify the analysis:
+For ordinary tasks, report briefly:
+
+- files changed or inspected
+- commands run
+- tests run or not run
+- any important limitation
+
+For deep academic / BoTorch / GPyTorch analysis, include enough provenance for the user to verify the analysis:
 
 - project files inspected
 - installed BoTorch or GPyTorch files inspected
 - important classes, functions, or parameters traced
-- any commands used to confirm the environment
-- any limitations, such as data files not found or tests not run
+- commands used to confirm the environment
+- data or preprocessing files inspected
+- limitations, such as data files not found, source files not inspected, or tests not run
 
-Keep explanations grounded in the current environment and current project files. If a behavior is inferred rather than directly observed in source or data, say so explicitly.
+Keep explanations grounded in the current environment and current project files.
+
+If a behavior is inferred rather than directly observed in source or data, say so explicitly.
+
+## When uncertain
+
+If the task may or may not require deep inspection, choose the lighter path first.
+
+Escalate only when:
+
+- the user asks for a rigorous academic explanation
+- the local code cannot be understood without installed BoTorch / GPyTorch internals
+- the correctness of the answer depends on exact library defaults
+- the answer will be used to justify modeling choices, experimental conclusions, or research claims
+
+## Style preferences
+
+Be concise for routine coding work.
+
+Be precise and provenance-heavy for serious academic or Bayesian optimization analysis.
+
+Do not over-explain simple edits.
+
+Do not claim that tests, source inspection, or data inspection were performed unless they were actually performed.

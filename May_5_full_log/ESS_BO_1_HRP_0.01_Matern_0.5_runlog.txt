@@ -1,0 +1,99 @@
+C:\anaconda3\envs\botorch\Lib\site-packages\botorch\fit.py:215: OptimizationWarning: `scipy_minimize` terminated with status OptimizationStatus.FAILURE, displaying original message from `scipy.optimize.minimize`: ABNORMAL_TERMINATION_IN_LNSRCH
+  result = optimizer(mll, closure=closure, **optimizer_kwargs)
+C:\anaconda3\envs\botorch\Lib\site-packages\botorch\fit.py:215: OptimizationWarning: `scipy_minimize` terminated with status OptimizationStatus.FAILURE, displaying original message from `scipy.optimize.minimize`: ABNORMAL_TERMINATION_IN_LNSRCH
+  result = optimizer(mll, closure=closure, **optimizer_kwargs)
+C:\anaconda3\envs\botorch\Lib\site-packages\botorch\fit.py:215: OptimizationWarning: `scipy_minimize` terminated with status OptimizationStatus.FAILURE, displaying original message from `scipy.optimize.minimize`: ABNORMAL_TERMINATION_IN_LNSRCH
+  result = optimizer(mll, closure=closure, **optimizer_kwargs)
+C:\anaconda3\envs\botorch\Lib\site-packages\linear_operator\utils\cholesky.py:40: NumericalWarning: A not p.d., added jitter of 1.0e-08 to the diagonal
+  warnings.warn(
+  -> 已启用全局物理边界并转换至 Log 空间: min=[-2.3010299956639813, -2.3010299956639813], max=[0.0, 0.0]
+正在拟合模型 'gp'...
+  -> Using standard SingleTaskGP (all features are continuous).
+模型拟合完成。
+
+[核矩阵诊断]
+  Minimum eigenvalue: 3.98e-02
+  Maximum eigenvalue: 4.15e+01
+  Condition number:   1.04e+03
+  noise (standardized):   3.981e-02
+  noise std (orig y):     434.0
+  Avg |residual| (orig y): 221.7
+  Max |residual| (orig y): 1532.0
+  低 y 段 (n=64) 残差 mean:         47
+  高 y 段 (n=64) 残差 mean: 396
+  高/低段残差比:                        8.38  (>2 即异方差信号明显)
+  lengthscale: tensor([[0.3131, 0.4697]])
+  outputscale: 1.0 (fixed, no ScaleKernel wrapper)
+
+[Group-LOO 交叉验证] n_groups=32 (每组 4 replicate)，正在逐组重拟合...
+  Group-LOO z-score mean:  +0.01  (期望 ≈ 0)
+  Group-LOO z-score std:   1.28   (>1 即外推 over-confident)
+  |z| > 2 比例:             10.2%  (期望 ≈ 5%)
+  |z| > 3 比例:             4.7%  (期望 ≈ 0.3%)
+|z| > 2 的点:
+  idx=85  z=-2.41  TMB=0.182  H2O2=0.016  y=1007
+  idx=100  z=+2.77  TMB=0.320  H2O2=0.056  y=6235
+  idx=102  z=+2.76  TMB=0.320  H2O2=0.056  y=6216
+  idx=108  z=-4.62  TMB=0.505  H2O2=0.074  y=794
+  idx=109  z=-4.28  TMB=0.505  H2O2=0.074  y=1088
+  idx=110  z=-4.60  TMB=0.505  H2O2=0.074  y=815
+  idx=111  z=-4.21  TMB=0.505  H2O2=0.074  y=1153
+  idx=116  z=+2.75  TMB=0.679  H2O2=0.375  y=7062
+  idx=117  z=+2.37  TMB=0.679  H2O2=0.375  y=6588
+  idx=124  z=+3.09  TMB=0.945  H2O2=0.009  y=8365
+  idx=125  z=+2.79  TMB=0.945  H2O2=0.009  y=7826
+  idx=126  z=+3.03  TMB=0.945  H2O2=0.009  y=8268
+  idx=127  z=+2.62  TMB=0.945  H2O2=0.009  y=7526
+
+正在使用采集函数 ['qlognei'] (选项: {}) 生成 32 个候选点...
+Traceback (most recent call last):
+  File "C:\PyCharm\Blueness\ess_bo.py", line 374, in <module>
+    main()
+  File "C:\PyCharm\Blueness\ess_bo.py", line 355, in main
+    rows, predicted_values, uncertainties = bo.ask(
+                                            ^^^^^^^
+  File "C:\PyCharm\Blueness\ess_bo.py", line 229, in ask
+    candidates, _ = optimize_acqf(
+                    ^^^^^^^^^^^^^^
+  File "C:\anaconda3\envs\botorch\Lib\site-packages\botorch\optim\optimize.py", line 732, in optimize_acqf
+    return _optimize_acqf(opt_inputs=opt_acqf_inputs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\anaconda3\envs\botorch\Lib\site-packages\botorch\optim\optimize.py", line 753, in _optimize_acqf
+    return _optimize_acqf_batch(opt_inputs=opt_inputs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\anaconda3\envs\botorch\Lib\site-packages\botorch\optim\optimize.py", line 457, in _optimize_acqf_batch
+    batch_candidates, batch_acq_values, ws = _optimize_batch_candidates()
+                                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\anaconda3\envs\botorch\Lib\site-packages\botorch\optim\optimize.py", line 434, in _optimize_batch_candidates
+    ) = opt_inputs.gen_candidates(
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\anaconda3\envs\botorch\Lib\site-packages\botorch\generation\gen.py", line 345, in gen_candidates_scipy
+    res = minimize_with_timeout(
+          ^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\anaconda3\envs\botorch\Lib\site-packages\botorch\optim\utils\timeout.py", line 86, in minimize_with_timeout
+    return optimize.minimize(
+           ^^^^^^^^^^^^^^^^^^
+  File "C:\anaconda3\envs\botorch\Lib\site-packages\scipy\optimize\_minimize.py", line 713, in minimize
+    res = _minimize_lbfgsb(fun, x0, args, jac, bounds,
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\anaconda3\envs\botorch\Lib\site-packages\scipy\optimize\_lbfgsb_py.py", line 369, in _minimize_lbfgsb
+    f, g = func_and_grad(x)
+           ^^^^^^^^^^^^^^^^
+  File "C:\anaconda3\envs\botorch\Lib\site-packages\scipy\optimize\_differentiable_functions.py", line 296, in fun_and_grad
+    self._update_fun()
+  File "C:\anaconda3\envs\botorch\Lib\site-packages\scipy\optimize\_differentiable_functions.py", line 262, in _update_fun
+    self._update_fun_impl()
+  File "C:\anaconda3\envs\botorch\Lib\site-packages\scipy\optimize\_differentiable_functions.py", line 163, in update_fun
+    self.f = fun_wrapped(self.x)
+             ^^^^^^^^^^^^^^^^^^^
+  File "C:\anaconda3\envs\botorch\Lib\site-packages\scipy\optimize\_differentiable_functions.py", line 145, in fun_wrapped
+    fx = fun(np.copy(x), *args)
+         ^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\anaconda3\envs\botorch\Lib\site-packages\scipy\optimize\_optimize.py", line 78, in __call__
+    self._compute_if_needed(x, *args)
+  File "C:\anaconda3\envs\botorch\Lib\site-packages\scipy\optimize\_optimize.py", line 72, in _compute_if_needed
+    fg = self.fun(x, *args)
+         ^^^^^^^^^^^^^^^^^^
+  File "C:\anaconda3\envs\botorch\Lib\site-packages\botorch\generation\gen.py", line 440, in f_np_wrapper
+    raise OptimizationGradientError(msg, current_x=x)
+botorch.exceptions.errors.OptimizationGradientError: 64 elements of the 2560 element gradient array `gradf` are NaN. This often indicates numerical issues. Consider using `dtype=torch.double`.

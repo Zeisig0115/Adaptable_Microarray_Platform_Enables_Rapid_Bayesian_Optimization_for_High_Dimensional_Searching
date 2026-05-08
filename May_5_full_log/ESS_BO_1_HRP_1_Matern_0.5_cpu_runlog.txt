@@ -1,0 +1,56 @@
+C:\anaconda3\envs\botorch\Lib\site-packages\botorch\fit.py:215: OptimizationWarning: `scipy_minimize` terminated with status OptimizationStatus.FAILURE, displaying original message from `scipy.optimize.minimize`: ABNORMAL_TERMINATION_IN_LNSRCH
+  result = optimizer(mll, closure=closure, **optimizer_kwargs)
+C:\anaconda3\envs\botorch\Lib\site-packages\linear_operator\utils\cholesky.py:40: NumericalWarning: A not p.d., added jitter of 1.0e-08 to the diagonal
+  warnings.warn(
+C:\anaconda3\envs\botorch\Lib\site-packages\botorch\optim\optimize.py:753: RuntimeWarning: Optimization failed in `gen_candidates_scipy` with the following warning(s):
+[NumericalWarning('A not p.d., added jitter of 1.0e-08 to the diagonal'), NumericalWarning('A not p.d., added jitter of 1.0e-07 to the diagonal'), NumericalWarning('A not p.d., added jitter of 1.0e-06 to the diagonal'), NumericalWarning('A not p.d., added jitter of 1.0e-05 to the diagonal'), NumericalWarning('A not p.d., added jitter of 1.0e-04 to the diagonal'), NumericalWarning('A not p.d., added jitter of 1.0e-03 to the diagonal'), NumericalWarning('Runtime Error when computing Cholesky decomposition: Matrix not positive definite after repeatedly adding jitter up to 1.0e-03.. Using symeig method.'), OptimizationWarning('Optimization failed within `scipy.optimize.minimize` with status 2 and message ABNORMAL_TERMINATION_IN_LNSRCH.'), NumericalWarning('A not p.d., added jitter of 1.0e-08 to the diagonal')]
+Trying again with a new set of initial conditions.
+  return _optimize_acqf_batch(opt_inputs=opt_inputs)
+C:\anaconda3\envs\botorch\Lib\site-packages\botorch\optim\optimize.py:753: RuntimeWarning: Optimization failed on the second try, after generating a new set of initial conditions.
+  return _optimize_acqf_batch(opt_inputs=opt_inputs)
+  -> 已启用全局物理边界并转换至 Log 空间: min=[-2.3010299956639813, -2.3010299956639813], max=[0.0, 0.0]
+正在拟合模型 'gp'...
+  -> Using standard SingleTaskGP (all features are continuous).
+模型拟合完成。
+
+[核矩阵诊断]
+  Minimum eigenvalue: 8.76e-02
+  Maximum eigenvalue: 5.54e+01
+  Condition number:   6.33e+02
+  noise (standardized):   8.761e-02
+  noise std (orig y):     949.2
+  Avg |residual| (orig y): 460.8
+  Max |residual| (orig y): 4170.5
+  低 y 段 (n=64) 残差 mean:         52
+  高 y 段 (n=64) 残差 mean: 869
+  高/低段残差比:                        16.60  (>2 即异方差信号明显)
+  lengthscale: tensor([[0.3501, 1.1256]])
+  outputscale: 1.0 (fixed, no ScaleKernel wrapper)
+
+[Group-LOO 交叉验证] n_groups=32 (每组 4 replicate)，正在逐组重拟合...
+  Group-LOO z-score mean:  +0.02  (期望 ≈ 0)
+  Group-LOO z-score std:   1.13   (>1 即外推 over-confident)
+  |z| > 2 比例:             10.2%  (期望 ≈ 5%)
+  |z| > 3 比例:             3.1%  (期望 ≈ 0.3%)
+|z| > 2 的点:
+  idx=97  z=+2.11  TMB=0.282  H2O2=0.005  y=8396
+  idx=99  z=+2.84  TMB=0.282  H2O2=0.005  y=9964
+  idx=105  z=+2.27  TMB=0.391  H2O2=0.033  y=9571
+  idx=107  z=+2.22  TMB=0.391  H2O2=0.033  y=9477
+  idx=110  z=-2.23  TMB=0.459  H2O2=0.190  y=2885
+  idx=112  z=-2.86  TMB=0.599  H2O2=0.022  y=3947
+  idx=113  z=-2.80  TMB=0.599  H2O2=0.022  y=4052
+  idx=114  z=-2.13  TMB=0.599  H2O2=0.022  y=5276
+  idx=116  z=+3.93  TMB=0.668  H2O2=0.139  y=11510
+  idx=117  z=+3.89  TMB=0.668  H2O2=0.139  y=11464
+  idx=118  z=+4.08  TMB=0.668  H2O2=0.139  y=11715
+  idx=119  z=+4.16  TMB=0.668  H2O2=0.139  y=11836
+  idx=120  z=+2.51  TMB=0.722  H2O2=0.414  y=11611
+
+正在使用采集函数 ['qlognei'] (选项: {}) 生成 32 个候选点...
+
+[成功] 32个候选点及其预测值和不确定性已写入 -> C:\PyCharm\Blueness\May_5_full_log\ESS_BO_1_HRP_1_Matern_0.5.csv
+
+[配置回顾]
+  - 设备: cpu, 模型: gp
+  - 随机种子: 42

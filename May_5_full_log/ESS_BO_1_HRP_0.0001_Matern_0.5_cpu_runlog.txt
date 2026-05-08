@@ -1,0 +1,43 @@
+C:\anaconda3\envs\botorch\Lib\site-packages\botorch\fit.py:215: OptimizationWarning: `scipy_minimize` terminated with status OptimizationStatus.FAILURE, displaying original message from `scipy.optimize.minimize`: ABNORMAL_TERMINATION_IN_LNSRCH
+  result = optimizer(mll, closure=closure, **optimizer_kwargs)
+C:\anaconda3\envs\botorch\Lib\site-packages\linear_operator\utils\cholesky.py:40: NumericalWarning: A not p.d., added jitter of 1.0e-08 to the diagonal
+  warnings.warn(
+  -> 已启用全局物理边界并转换至 Log 空间: min=[-2.3010299956639813, -2.3010299956639813], max=[0.0, 0.0]
+正在拟合模型 'gp'...
+  -> Using standard SingleTaskGP (all features are continuous).
+模型拟合完成。
+
+[核矩阵诊断]
+  Minimum eigenvalue: 3.57e-02
+  Maximum eigenvalue: 1.24e+01
+  Condition number:   3.46e+02
+  noise (standardized):   3.568e-02
+  noise std (orig y):     58.8
+  Avg |residual| (orig y): 41.5
+  Max |residual| (orig y): 151.2
+  低 y 段 (n=64) 残差 mean:         30
+  高 y 段 (n=64) 残差 mean: 53
+  高/低段残差比:                        1.79  (>2 即异方差信号明显)
+  lengthscale: tensor([[0.0596, 0.4395]])
+  outputscale: 1.0 (fixed, no ScaleKernel wrapper)
+
+[Group-LOO 交叉验证] n_groups=32 (每组 4 replicate)，正在逐组重拟合...
+  Group-LOO z-score mean:  -0.02  (期望 ≈ 0)
+  Group-LOO z-score std:   1.24   (>1 即外推 over-confident)
+  |z| > 2 比例:             4.7%  (期望 ≈ 5%)
+  |z| > 3 比例:             3.1%  (期望 ≈ 0.3%)
+|z| > 2 的点:
+  idx=36  z=-2.32  TMB=0.024  H2O2=0.081  y=-496
+  idx=37  z=-2.11  TMB=0.024  H2O2=0.081  y=-453
+  idx=68  z=-3.07  TMB=0.089  H2O2=0.029  y=-567
+  idx=69  z=-3.46  TMB=0.089  H2O2=0.029  y=-658
+  idx=70  z=-3.17  TMB=0.089  H2O2=0.029  y=-591
+  idx=71  z=-3.12  TMB=0.089  H2O2=0.029  y=-580
+
+正在使用采集函数 ['qlognei'] (选项: {}) 生成 32 个候选点...
+
+[成功] 32个候选点及其预测值和不确定性已写入 -> C:\PyCharm\Blueness\May_5_full_log\ESS_BO_1_HRP_0.0001_Matern_0.5.csv
+
+[配置回顾]
+  - 设备: cpu, 模型: gp
+  - 随机种子: 42

@@ -379,7 +379,7 @@ def parse_args() -> argparse.Namespace:
         "--models",
         nargs="+",
         default=["fixed_sem_shrunk"],
-        choices=["replicate_inferred", "fixed_sem_raw", "fixed_sem_shrunk"],
+        choices=["fixed_sem_shrunk"],
     )
     parser.add_argument("--out_dir", default="May_5_full_log")
     parser.add_argument("--seed", type=int, default=42)
@@ -392,6 +392,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--loo", action="store_true")
     parser.add_argument(
         "--candidates_only",
+        default=True,
         action="store_true",
         help="Only save candidate CSV files; skip condition-noise, posterior grid, train posterior, covariance, summary, and LOO outputs.",
     )

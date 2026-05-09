@@ -1,4 +1,0 @@
-HRP,run_log,lengthscale_TMB_normalized,lengthscale_H2O2_normalized,kernel_min_eigenvalue,kernel_max_eigenvalue,kernel_condition_number,noise_standardized,noise_std_orig_y,avg_abs_residual_orig_y,max_abs_residual_orig_y,low_y_residual_mean,high_y_residual_mean,high_low_residual_ratio,group_loo_z_mean,group_loo_z_std,group_loo_abs_z_gt_2_pct,group_loo_abs_z_gt_3_pct
-1,May_5_full_log\ESS_BO_1_HRP_1_Matern_0.5_cpu_runlog.txt,0.3501,1.1256,0.0876,55.4,633.0,0.08761,949.2,460.8,4170.5,52.0,869.0,16.6,0.02,1.13,10.2,3.1
-0.01,May_5_full_log\ESS_BO_1_HRP_0.01_Matern_0.5_cpu_runlog.txt,0.3131,0.4697,0.0398,41.5,1040.0,0.03981,434.0,221.7,1532.0,47.0,396.0,8.38,0.01,1.28,10.2,4.7
-0.0001,May_5_full_log\ESS_BO_1_HRP_0.0001_Matern_0.5_cpu_runlog.txt,0.0596,0.4395,0.0357,12.4,346.0,0.03568,58.8,41.5,151.2,30.0,53.0,1.79,-0.02,1.24,4.7,3.1

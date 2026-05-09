@@ -290,10 +290,11 @@ def run_for_hrp(args: argparse.Namespace, hrp: str, out_dir: Path) -> list[dict[
     data_path = Path(args.input_dir) / f"{args.input_prefix}_LHS_HRP_{hrp}_res.xlsx"
     df = pd.read_excel(data_path)
     cond = prepare_condition_table(df, args.target, args.shrink_alpha)
-    cond_out = out_dir / f"fixed_noise_gp_HRP_{hrp}_condition_noise.csv"
-    cond.to_csv(cond_out, index=False)
+    if not args.candidates_only:
+        cond_out = out_dir / f"fixed_noise_gp_HRP_{hrp}_condition_noise.csv"
+        cond.to_csv(cond_out, index=False)
 
-    grid_x = make_grid(bounds, args.grid_size, device)
+    grid_x = None if args.candidates_only else make_grid(bounds, args.grid_size, device)
     summary_rows: list[dict[str, Any]] = []
 
     for model_name in args.models:
@@ -304,7 +305,7 @@ def run_for_hrp(args: argparse.Namespace, hrp: str, out_dir: Path) -> list[dict[
         model = fit_model(train_x, train_y, bounds, train_yvar)
 
         loo_stats: dict[str, float] = {}
-        if args.loo:
+        if args.loo and not args.candidates_only:
             print("  running condition-level LOO refits...", flush=True)
             loo_stats = condition_loo(df, cond, args.target, model_name, bounds, device)
 
@@ -327,18 +328,6 @@ def run_for_hrp(args: argparse.Namespace, hrp: str, out_dir: Path) -> list[dict[
         cand_path = out_dir / f"fixed_noise_gp_HRP_{hrp}_{model_name}_candidates.csv"
         cand.to_csv(cand_path, index=False)
 
-        cov_path = out_dir / f"fixed_noise_gp_HRP_{hrp}_{model_name}_candidate_latent_cov.csv"
-        covariance_frame(model, cand_x).to_csv(cov_path, index=False)
-
-        grid = posterior_frame(model, grid_x)
-        grid_path = out_dir / f"fixed_noise_gp_HRP_{hrp}_{model_name}_posterior_grid.csv"
-        grid.to_csv(grid_path, index=False)
-
-        in_sample = posterior_frame(model, train_x)
-        in_sample["training_target"] = train_y.detach().cpu().numpy().reshape(-1)
-        in_sample_path = out_dir / f"fixed_noise_gp_HRP_{hrp}_{model_name}_posterior_train.csv"
-        in_sample.to_csv(in_sample_path, index=False)
-
         extra = {
             "candidate_pred_max": float(cand["predicted_value"].max()),
             "candidate_pred_min": float(cand["predicted_value"].min()),
@@ -348,11 +337,28 @@ def run_for_hrp(args: argparse.Namespace, hrp: str, out_dir: Path) -> list[dict[
                 cand["default_observation_std"].mean()
             ),
             "candidate_file": str(cand_path),
-            "posterior_grid_file": str(grid_path),
-            "posterior_train_file": str(in_sample_path),
-            "candidate_cov_file": str(cov_path),
             "baseline_rows": int(baseline_df.shape[0]),
         }
+        if not args.candidates_only:
+            cov_path = out_dir / f"fixed_noise_gp_HRP_{hrp}_{model_name}_candidate_latent_cov.csv"
+            covariance_frame(model, cand_x).to_csv(cov_path, index=False)
+
+            grid = posterior_frame(model, grid_x)
+            grid_path = out_dir / f"fixed_noise_gp_HRP_{hrp}_{model_name}_posterior_grid.csv"
+            grid.to_csv(grid_path, index=False)
+
+            in_sample = posterior_frame(model, train_x)
+            in_sample["training_target"] = train_y.detach().cpu().numpy().reshape(-1)
+            in_sample_path = out_dir / f"fixed_noise_gp_HRP_{hrp}_{model_name}_posterior_train.csv"
+            in_sample.to_csv(in_sample_path, index=False)
+
+            extra.update(
+                {
+                    "posterior_grid_file": str(grid_path),
+                    "posterior_train_file": str(in_sample_path),
+                    "candidate_cov_file": str(cov_path),
+                }
+            )
         extra.update(loo_stats)
         summary_rows.append(
             summarize_model(hrp, model_name, model, train_y, train_yvar, cond, extra)
@@ -372,7 +378,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--models",
         nargs="+",
-        default=["replicate_inferred", "fixed_sem_raw", "fixed_sem_shrunk"],
+        default=["fixed_sem_shrunk"],
         choices=["replicate_inferred", "fixed_sem_raw", "fixed_sem_shrunk"],
     )
     parser.add_argument("--out_dir", default="May_5_full_log")
@@ -384,6 +390,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--grid_size", type=int, default=41)
     parser.add_argument("--shrink_alpha", type=float, default=0.5)
     parser.add_argument("--loo", action="store_true")
+    parser.add_argument(
+        "--candidates_only",
+        action="store_true",
+        help="Only save candidate CSV files; skip condition-noise, posterior grid, train posterior, covariance, summary, and LOO outputs.",
+    )
     return parser.parse_args()
 
 
@@ -403,10 +414,11 @@ def main() -> None:
     for hrp in args.hrp:
         rows.extend(run_for_hrp(args, hrp, out_dir))
 
-    summary = pd.DataFrame(rows)
-    summary_path = out_dir / "fixed_noise_gp_probe_summary.csv"
-    summary.to_csv(summary_path, index=False)
-    print(f"\nSaved summary -> {summary_path.resolve()}", flush=True)
+    if not args.candidates_only:
+        summary = pd.DataFrame(rows)
+        summary_path = out_dir / "fixed_noise_gp_probe_summary.csv"
+        summary.to_csv(summary_path, index=False)
+        print(f"\nSaved summary -> {summary_path.resolve()}", flush=True)
 
 
 if __name__ == "__main__":

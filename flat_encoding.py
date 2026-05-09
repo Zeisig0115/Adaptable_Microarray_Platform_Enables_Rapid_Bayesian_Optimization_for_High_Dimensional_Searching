@@ -40,7 +40,7 @@ DEFAULT_Q = 32
 DEFAULT_OUT_CSV = "bo_candidates_flat_gp.csv"
 EPS = 1e-7
 
-CONC_LO = 0.001
+CONC_LO = 0.005
 CONC_HI = 1.0
 LOG_LO = math.log10(CONC_LO)   # -3.0
 LOG_HI = math.log10(CONC_HI)   #  0.0

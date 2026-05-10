@@ -775,18 +775,18 @@ def generate_candidates(
     )
     elapsed = time.time() - t0
     candidates = codec.postprocess_batch(candidates_raw, bounds)
-    rows = codec.decode(candidates.detach().cpu().numpy())
+    candidates_cpu = candidates.detach().cpu()
 
-    seen: set[tuple[float, ...]] = set()
-    unique_rows: list[dict[str, float]] = []
+    seen: set[bytes] = set()
     unique_tensors: list[torch.Tensor] = []
-    for row, tensor in zip(rows, candidates):
-        key = tuple(np.round(codec.encode_row(row), 6))
+    for row_cpu, tensor in zip(candidates_cpu, candidates):
+        # De-duplicate directly in the canonical postprocessed encoding space.
+        key = row_cpu.contiguous().numpy().tobytes()
         if key not in seen:
             seen.add(key)
-            unique_rows.append(row)
             unique_tensors.append(tensor)
     unique_cand = torch.stack(unique_tensors) if unique_tensors else candidates[:0]
+    unique_rows = codec.decode(unique_cand.detach().cpu().numpy())
     with torch.no_grad():
         acq_vals = acqf(unique_cand.unsqueeze(1)).view(-1).detach().cpu().numpy()
         post = model.posterior(unique_cand)

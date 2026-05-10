@@ -1,0 +1,60 @@
+{
+  "n_subspaces_total": 9109,
+  "n_subspaces_top": 20,
+  "screen_best": 10.081159069957124,
+  "screen_worst_top": 9.141418413290749,
+  "screen_active_count_dist": {
+    "4": 19,
+    "3": 1
+  },
+  "screen_sample_stats_by_n_free": {
+    "2": 4,
+    "3": 176,
+    "4": 3696,
+    "5": 49280,
+    "6": 468160
+  },
+  "candidate_opt_seconds": 947.1174156665802,
+  "candidate_joint_acq": 10.834376298980745,
+  "candidate_unique_before_topq": 32,
+  "candidate_n": 32,
+  "candidate_active_count_dist": {
+    "4": 32
+  },
+  "candidate_additive_counts": {
+    "imidazole": 32,
+    "cacl2": 32,
+    "bsa": 22,
+    "cmc": 17,
+    "edta": 8,
+    "feso4": 6,
+    "sucrose": 5,
+    "peg20k": 4,
+    "mgso4": 2
+  },
+  "candidate_pair_counts": {
+    "imidazole+cacl2": 32,
+    "bsa+imidazole": 22,
+    "bsa+cacl2": 22,
+    "cmc+imidazole": 17,
+    "cmc+cacl2": 17,
+    "cmc+bsa": 8,
+    "imidazole+edta": 8,
+    "edta+cacl2": 8,
+    "imidazole+feso4": 6,
+    "cacl2+feso4": 6,
+    "imidazole+sucrose": 5,
+    "sucrose+cacl2": 5,
+    "bsa+edta": 4,
+    "peg20k+imidazole": 4,
+    "peg20k+cacl2": 4,
+    "bsa+sucrose": 3,
+    "cmc+edta": 3,
+    "cmc+feso4": 3,
+    "peg20k+bsa": 3,
+    "bsa+mgso4": 2
+  },
+  "candidate_acq_mean": 10.369092771978849,
+  "candidate_acq_min": 9.700043812275071,
+  "candidate_acq_max": 10.691838557614073
+}

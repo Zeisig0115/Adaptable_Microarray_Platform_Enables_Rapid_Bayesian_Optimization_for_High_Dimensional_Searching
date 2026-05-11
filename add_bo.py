@@ -923,32 +923,52 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         description="Compare old MixedSingleTaskGP with a custom additive-set GP prior."
     )
-    p.add_argument("--input", type=str, default="data_corrected.xlsx")
-    p.add_argument("--sheet", type=str, default="Corrected Data")
-    p.add_argument("--target", type=str, default="intensity")
-    p.add_argument("--hrp", type=float, default=0.0001)
-    p.add_argument("--hrp_atol", type=float, default=1e-12)
-    p.add_argument("--filter_ctrl", action=argparse.BooleanOptionalAction, default=True)
-    p.add_argument("--device", choices=["cpu", "cuda"], default="cpu")
-    p.add_argument("--seed", type=int, default=42)
-    p.add_argument("--k_max", type=int, default=4)
-    p.add_argument("--fit_maxiter", type=int, default=75)
-    p.add_argument("--output_dir", type=str, default="add_bo_compare")
 
-    p.add_argument("--stability_mc_samples", type=int, default=64)
-    p.add_argument("--stability_repeats", type=int, default=5)
-    p.add_argument("--acq_pool_size", type=int, default=512)
-    p.add_argument("--eval_batch_size", type=int, default=256)
+    data = p.add_argument_group("Data input and filtering")
+    data.add_argument("--input", type=str, default="data_corrected.xlsx")
+    data.add_argument("--sheet", type=str, default="Corrected Data")
+    data.add_argument("--target", type=str, default="intensity")
+    data.add_argument("--hrp", type=float, default=0.0001)
+    data.add_argument("--hrp_atol", type=float, default=1e-12)
+    data.add_argument(
+        "--filter_ctrl",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+    )
 
-    p.add_argument("--skip_candidates", action="store_true")
-    p.add_argument("--q", type=int, default=32)
-    p.add_argument("--num_restarts", type=int, default=10)
-    p.add_argument("--raw_samples", type=int, default=256)
-    p.add_argument("--acq_maxiter", type=int, default=100)
-    p.add_argument("--num_top_subspaces", type=int, default=40)
-    p.add_argument("--sobol_max_samples", type=int, default=512)
-    p.add_argument("--screen_mc_samples", type=int, default=32)
-    p.add_argument("--refine_mc_samples", type=int, default=64)
+    run_control = p.add_argument_group("Run control and output")
+    run_control.add_argument("--device", choices=["cpu", "cuda"], default="cpu")
+    run_control.add_argument("--seed", type=int, default=42)
+    run_control.add_argument("--output_dir", type=str, default="add_bo_compare")
+
+    search_space = p.add_argument_group("Search-space constraints")
+    search_space.add_argument("--k_max", type=int, default=4)
+
+    gp_fit = p.add_argument_group("GP model fitting")
+    gp_fit.add_argument("--fit_maxiter", type=int, default=75)
+
+    stability = p.add_argument_group("Acquisition stability diagnostics")
+    stability.add_argument("--stability_mc_samples", type=int, default=64)
+    stability.add_argument("--stability_repeats", type=int, default=5)
+    stability.add_argument("--acq_pool_size", type=int, default=512)
+
+    candidate = p.add_argument_group("Candidate generation")
+    candidate.add_argument("--skip_candidates", action="store_true")
+    candidate.add_argument("--q", type=int, default=32)
+
+    acq_screen = p.add_argument_group("ACQ subspace screening")
+    acq_screen.add_argument("--num_top_subspaces", type=int, default=40)
+    acq_screen.add_argument("--sobol_max_samples", type=int, default=512)
+    acq_screen.add_argument("--screen_mc_samples", type=int, default=32)
+
+    acq_opt = p.add_argument_group("ACQ mixed optimization")
+    acq_opt.add_argument("--num_restarts", type=int, default=10)
+    acq_opt.add_argument("--raw_samples", type=int, default=256)
+    acq_opt.add_argument("--acq_maxiter", type=int, default=100)
+    acq_opt.add_argument("--refine_mc_samples", type=int, default=64)
+
+    acq_eval = p.add_argument_group("ACQ evaluation performance")
+    acq_eval.add_argument("--eval_batch_size", type=int, default=256)
     return p
 
 

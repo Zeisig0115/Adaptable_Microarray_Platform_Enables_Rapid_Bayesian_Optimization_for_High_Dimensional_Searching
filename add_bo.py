@@ -872,13 +872,15 @@ def run(args: argparse.Namespace) -> None:
     df, codec = load_training_data(args)
     X, Y, encode_meta = encode_training_data(df, codec, args.target, device)
     bounds = codec.get_bounds(device)
-    pool = make_candidate_pool(
-        codec=codec,
-        bounds=bounds,
-        n=args.acq_pool_size,
-        k_max=args.k_max,
-        seed=args.seed + 123,
-    )
+    pool = None
+    if args.acq_stability_diagnostics:
+        pool = make_candidate_pool(
+            codec=codec,
+            bounds=bounds,
+            n=args.acq_pool_size,
+            k_max=args.k_max,
+            seed=args.seed + 123,
+        )
 
     print("[Data]", json.dumps({**dataset_summary(df, codec, args.target), **encode_meta}, indent=2))
     results: dict[str, dict[str, Any]] = {}
@@ -894,21 +896,27 @@ def run(args: argparse.Namespace) -> None:
         print(f"  fit seconds: {fit_info['fit_seconds']:.1f}")
         diagnostics: dict[str, Any] = {}
         diagnostics.update(fit_info)
-        diagnostics.update(training_fit_diagnostics(model, X, Y))
-        diagnostics.update(matrix_diagnostics(model, X))
-        diagnostics.update(loo_diagnostics(model, X))
-        diagnostics.update(kernel_parameter_summary(model))
-        diagnostics.update(
-            acq_stability_diagnostics(
-                model=model,
-                X_baseline=X,
-                pool=pool,
-                mc_samples=args.stability_mc_samples,
-                repeats=args.stability_repeats,
-                seed=args.seed + 29,
-                eval_batch_size=args.eval_batch_size,
+        if args.training_fit_diagnostics:
+            diagnostics.update(training_fit_diagnostics(model, X, Y))
+        if args.matrix_diagnostics:
+            diagnostics.update(matrix_diagnostics(model, X))
+        if args.loo_diagnostics:
+            diagnostics.update(loo_diagnostics(model, X))
+        if args.kernel_parameter_summary:
+            diagnostics.update(kernel_parameter_summary(model))
+        if args.acq_stability_diagnostics:
+            assert pool is not None
+            diagnostics.update(
+                acq_stability_diagnostics(
+                    model=model,
+                    X_baseline=X,
+                    pool=pool,
+                    mc_samples=args.stability_mc_samples,
+                    repeats=args.stability_repeats,
+                    seed=args.seed + 29,
+                    eval_batch_size=args.eval_batch_size,
+                )
             )
-        )
         if not args.skip_candidates:
             print(f"  generating candidates for {label} ...")
             cand_df, cand_info = generate_candidates(
@@ -959,6 +967,17 @@ def build_arg_parser() -> argparse.ArgumentParser:
         description="Compare old MixedSingleTaskGP with a custom additive-set GP prior."
     )
 
+    presets = p.add_argument_group("BO run presets")
+    presets.add_argument(
+        "--bo_profile",
+        choices=sorted(BO_PROFILES),
+        default="default",
+        help=(
+            "Optional preset for candidate-focused runs. Explicit command-line "
+            "arguments override preset values."
+        ),
+    )
+
     data = p.add_argument_group("Data input and filtering")
     data.add_argument("--input", type=str, default="data_corrected.xlsx")
     data.add_argument("--sheet", type=str, default="Corrected Data")
@@ -982,7 +1001,34 @@ def build_arg_parser() -> argparse.ArgumentParser:
     gp_fit = p.add_argument_group("GP model fitting")
     gp_fit.add_argument("--fit_maxiter", type=int, default=75)
 
+    model_diag = p.add_argument_group("Model diagnostics")
+    model_diag.add_argument(
+        "--training_fit_diagnostics",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+    )
+    model_diag.add_argument(
+        "--matrix_diagnostics",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+    )
+    model_diag.add_argument(
+        "--loo_diagnostics",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+    )
+    model_diag.add_argument(
+        "--kernel_parameter_summary",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+    )
+
     stability = p.add_argument_group("Acquisition stability diagnostics")
+    stability.add_argument(
+        "--acq_stability_diagnostics",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+    )
     stability.add_argument("--stability_mc_samples", type=int, default=64)
     stability.add_argument("--stability_repeats", type=int, default=5)
     stability.add_argument("--acq_pool_size", type=int, default=512)
@@ -1007,5 +1053,37 @@ def build_arg_parser() -> argparse.ArgumentParser:
     return p
 
 
+def explicit_arg_dests(
+    parser: argparse.ArgumentParser,
+    argv: list[str] | None = None,
+) -> set[str]:
+    argv = sys.argv[1:] if argv is None else argv
+    option_to_dest = {
+        opt: action.dest
+        for action in parser._actions
+        for opt in action.option_strings
+    }
+    explicit: set[str] = set()
+    for token in argv:
+        opt = token.split("=", 1)[0]
+        if opt in option_to_dest:
+            explicit.add(option_to_dest[opt])
+    return explicit
+
+
+def apply_bo_profile(args: argparse.Namespace, explicit_dests: set[str]) -> argparse.Namespace:
+    profile = BO_PROFILES[args.bo_profile]
+    for dest, value in profile.items():
+        if dest not in explicit_dests:
+            setattr(args, dest, value)
+    return args
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = build_arg_parser()
+    args = parser.parse_args(argv)
+    return apply_bo_profile(args, explicit_arg_dests(parser, argv))
+
+
 if __name__ == "__main__":
-    run(build_arg_parser().parse_args())
+    run(parse_args())

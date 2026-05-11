@@ -1,0 +1,18 @@
+{
+  "description": "Smoke-test mode: disable diagnostics and use low BO budgets to quickly verify that candidate generation works.",
+  "args": {
+    "training_fit_diagnostics": false,
+    "matrix_diagnostics": false,
+    "loo_diagnostics": false,
+    "kernel_parameter_summary": false,
+    "acq_stability_diagnostics": false,
+    "fit_maxiter": 100,
+    "num_top_subspaces": 20,
+    "sobol_max_samples": 128,
+    "screen_mc_samples": 16,
+    "num_restarts": 5,
+    "raw_samples": 128,
+    "acq_maxiter": 50,
+    "refine_mc_samples": 32
+  }
+}

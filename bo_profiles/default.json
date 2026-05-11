@@ -1,0 +1,4 @@
+{
+  "description": "Kernel-comparison mode: keep all diagnostics on and use moderate candidate-generation settings.",
+  "args": {}
+}

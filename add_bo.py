@@ -49,40 +49,40 @@ CONC_HI = 2.0
 LOG_LO = math.log10(CONC_LO)
 LOG_HI = math.log10(CONC_HI)
 CONC_DEFAULT = LOG_LO
+PROFILE_DIR = Path(__file__).with_name("bo_profiles")
 
-BO_PROFILES: dict[str, dict[str, Any]] = {
-    "default": {},
-    "fast_candidates": {
-        "training_fit_diagnostics": False,
-        "matrix_diagnostics": False,
-        "loo_diagnostics": False,
-        "kernel_parameter_summary": False,
-        "acq_stability_diagnostics": False,
-        "fit_maxiter": 100,
-        "num_top_subspaces": 20,
-        "sobol_max_samples": 128,
-        "screen_mc_samples": 16,
-        "num_restarts": 5,
-        "raw_samples": 128,
-        "acq_maxiter": 50,
-        "refine_mc_samples": 32,
-    },
-    "strong_candidates": {
-        "training_fit_diagnostics": False,
-        "matrix_diagnostics": False,
-        "loo_diagnostics": False,
-        "kernel_parameter_summary": False,
-        "acq_stability_diagnostics": False,
-        "fit_maxiter": 250,
-        "num_top_subspaces": 80,
-        "sobol_max_samples": 1024,
-        "screen_mc_samples": 64,
-        "num_restarts": 20,
-        "raw_samples": 512,
-        "acq_maxiter": 200,
-        "refine_mc_samples": 128,
-    },
-}
+
+def load_bo_profiles(profile_dir: Path = PROFILE_DIR) -> dict[str, dict[str, Any]]:
+    profiles: dict[str, dict[str, Any]] = {}
+    if profile_dir.exists():
+        for path in sorted(profile_dir.glob("*.json")):
+            with path.open("r", encoding="utf-8") as f:
+                payload = json.load(f)
+            if not isinstance(payload, dict):
+                raise ValueError(f"Profile must be a JSON object: {path}")
+            args = payload.get("args", {})
+            if not isinstance(args, dict):
+                raise ValueError(f"Profile 'args' must be a JSON object: {path}")
+            profiles[path.stem] = {
+                "description": str(payload.get("description", "")),
+                "args": args,
+            }
+    profiles.setdefault(
+        "default",
+        {
+            "description": "Use argparse defaults: full diagnostics and moderate candidates.",
+            "args": {},
+        },
+    )
+    return profiles
+
+
+def format_profile_help(profiles: dict[str, dict[str, Any]]) -> str:
+    lines = ["Available BO profiles:"]
+    for name, profile in sorted(profiles.items()):
+        description = profile.get("description") or "No description."
+        lines.append(f"  {name}: {description}")
+    return "\n".join(lines)
 
 
 def set_seeds(seed: int) -> None:
@@ -963,18 +963,22 @@ def run(args: argparse.Namespace) -> None:
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
+    profiles = load_bo_profiles()
     p = argparse.ArgumentParser(
-        description="Compare old MixedSingleTaskGP with a custom additive-set GP prior."
+        description="Compare old MixedSingleTaskGP with a custom additive-set GP prior.",
+        epilog=format_profile_help(profiles),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    p.bo_profiles = profiles  # type: ignore[attr-defined]
 
     presets = p.add_argument_group("BO run presets")
     presets.add_argument(
         "--bo_profile",
-        choices=sorted(BO_PROFILES),
+        choices=sorted(profiles),
         default="default",
         help=(
             "Optional preset for candidate-focused runs. Explicit command-line "
-            "arguments override preset values."
+            "arguments override preset values. Profiles are loaded from bo_profiles/*.json."
         ),
     )
 
@@ -1071,8 +1075,18 @@ def explicit_arg_dests(
     return explicit
 
 
-def apply_bo_profile(args: argparse.Namespace, explicit_dests: set[str]) -> argparse.Namespace:
-    profile = BO_PROFILES[args.bo_profile]
+def apply_bo_profile(
+    args: argparse.Namespace,
+    explicit_dests: set[str],
+    profiles: dict[str, dict[str, Any]],
+    valid_dests: set[str],
+) -> argparse.Namespace:
+    profile = profiles[args.bo_profile]["args"]
+    unknown = sorted(set(profile) - valid_dests)
+    if unknown:
+        raise ValueError(
+            f"Unknown argument(s) in BO profile '{args.bo_profile}': {unknown}"
+        )
     for dest, value in profile.items():
         if dest not in explicit_dests:
             setattr(args, dest, value)
@@ -1082,7 +1096,9 @@ def apply_bo_profile(args: argparse.Namespace, explicit_dests: set[str]) -> argp
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = build_arg_parser()
     args = parser.parse_args(argv)
-    return apply_bo_profile(args, explicit_arg_dests(parser, argv))
+    profiles = parser.bo_profiles  # type: ignore[attr-defined]
+    valid_dests = {action.dest for action in parser._actions}
+    return apply_bo_profile(args, explicit_arg_dests(parser, argv), profiles, valid_dests)
 
 
 if __name__ == "__main__":

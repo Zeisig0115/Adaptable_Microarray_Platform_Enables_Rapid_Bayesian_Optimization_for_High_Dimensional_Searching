@@ -25,6 +25,8 @@ torch.set_default_dtype(torch.double)
 
 ESSENTIALS = ["TMB", "H2O2"]
 DEFAULT_Q = 32
+LOGS_DIR = Path(__file__).with_name("logs")
+DEFAULT_MAY05_LOG_DIR = LOGS_DIR / "May_05_full_log"
 
 def set_seeds(seed: int = 42):
     random.seed(seed)
@@ -254,7 +256,12 @@ class EssentialsBO:
 
 def _setup_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="必需品浓度组合的贝叶斯优化脚本")
-    parser.add_argument("--datafile", type=str, default="May_5_full_log/LHS_HRP_1_res.xlsx", help="包含历史数据的CSV或Excel文件路径")
+    parser.add_argument(
+        "--datafile",
+        type=str,
+        default=str(DEFAULT_MAY05_LOG_DIR / "05_05_LHS_HRP_1_res.xlsx"),
+        help="包含历史数据的CSV或Excel文件路径",
+    )
     parser.add_argument("--target", type=str, default="AUC", help="文件中的目标列名")
     parser.add_argument("--seed", type=int, default=42, help="全局随机种子")
     parser.add_argument("--device", choices=["auto", "cpu", "cuda"], default="cuda", help="计算设备")
@@ -275,6 +282,12 @@ def _setup_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--nuts_warmup", type=int, default=512, help="NUTS预热步数")
     parser.add_argument("--nuts_samples", type=int, default=256, help="NUTS采样数")
     parser.add_argument("--nuts_thinning", type=int, default=16, help="NUTS thinning参数")
+    parser.add_argument(
+        "--out_dir",
+        type=str,
+        default=str(DEFAULT_MAY05_LOG_DIR),
+        help="Directory for generated ESS BO candidate CSV files",
+    )
     return parser
 
 
@@ -323,6 +336,8 @@ def main():
     parser = _setup_arg_parser()
     args = parser.parse_args()
     set_seeds(args.seed)
+    out_dir = Path(args.out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     df, essentials = _prepare_data(args.datafile)
     assert args.target in df.columns, f"目标列 '{args.target}' 在文件中不存在。"
@@ -361,7 +376,7 @@ def main():
     )
 
     hrp_tag = _parse_hrp_from_filename(args.datafile)
-    output_filename = f"./May_5_full_log/ESS_BO_1_HRP_{hrp_tag}_Matern_0.5.csv"
+    output_filename = out_dir / f"ESS_BO_1_HRP_{hrp_tag}_Matern_0.5.csv"
 
     _save_results(rows, predicted_values, uncertainties, essentials, output_filename)
 

@@ -49,6 +49,7 @@ CONC_HI = 2.0
 LOG_LO = math.log10(CONC_LO)
 LOG_HI = math.log10(CONC_HI)
 CONC_DEFAULT = LOG_LO
+LOGS_DIR = Path(__file__).with_name("logs")
 PROFILE_DIR = Path(__file__).with_name("bo_profiles")
 
 
@@ -997,7 +998,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     run_control = p.add_argument_group("Run control and output")
     run_control.add_argument("--device", choices=["cpu", "cuda"], default="cpu")
     run_control.add_argument("--seed", type=int, default=42)
-    run_control.add_argument("--output_dir", type=str, default="add_bo_compare")
+    run_control.add_argument("--output_dir", type=str, default=str(LOGS_DIR / "add_bo_compare"))
 
     search_space = p.add_argument_group("Search-space constraints")
     search_space.add_argument("--k_max", type=int, default=4)

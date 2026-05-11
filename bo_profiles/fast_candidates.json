@@ -1,6 +1,7 @@
 {
-  "description": "Smoke-test mode: disable diagnostics and use low BO budgets to quickly verify that candidate generation works.",
+  "description": "Fast new-set-kernel candidate mode: disable diagnostics and skip the old mixed baseline.",
   "args": {
+    "models": ["new_additive_set"],
     "training_fit_diagnostics": false,
     "matrix_diagnostics": false,
     "loo_diagnostics": false,

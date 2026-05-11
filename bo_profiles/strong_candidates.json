@@ -1,6 +1,7 @@
 {
-  "description": "Experiment-candidate mode: disable diagnostics and spend the time budget on stronger GP fitting and ACQ optimization.",
+  "description": "Strong new-set-kernel candidate mode: disable diagnostics, skip the old mixed baseline, and spend the budget on fitting and ACQ optimization.",
   "args": {
+    "models": ["new_additive_set"],
     "training_fit_diagnostics": false,
     "matrix_diagnostics": false,
     "loo_diagnostics": false,

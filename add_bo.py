@@ -416,6 +416,12 @@ def make_new_model(
     ).to(X)
 
 
+MODEL_BUILDERS = [
+    ("old_mixed_hamming", make_old_model),
+    ("new_additive_set", make_new_model),
+]
+
+
 def fit_model(model: SingleTaskGP, maxiter: int) -> dict[str, Any]:
     t0 = time.time()
     mll = ExactMarginalLogLikelihood(model.likelihood, model).to(model.train_targets)
@@ -887,10 +893,10 @@ def run(args: argparse.Namespace) -> None:
     results: dict[str, dict[str, Any]] = {}
     candidate_frames: list[pd.DataFrame] = []
 
-    for label, builder in [
-        ("old_mixed_hamming", make_old_model),
-        ("new_additive_set", make_new_model),
-    ]:
+    selected_models = set(args.models)
+    for label, builder in MODEL_BUILDERS:
+        if label not in selected_models:
+            continue
         print(f"\n=== Fitting {label} ===")
         model = builder(X, Y, codec, bounds)
         fit_info = fit_model(model, maxiter=args.fit_maxiter)
@@ -999,6 +1005,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
     run_control.add_argument("--device", choices=["cpu", "cuda"], default="cpu")
     run_control.add_argument("--seed", type=int, default=42)
     run_control.add_argument("--output_dir", type=str, default=str(LOGS_DIR / "add_bo_compare"))
+    run_control.add_argument(
+        "--models",
+        nargs="+",
+        choices=[label for label, _ in MODEL_BUILDERS],
+        default=[label for label, _ in MODEL_BUILDERS],
+        help="Model(s) to run. Use 'new_additive_set' to skip the old mixed baseline.",
+    )
 
     search_space = p.add_argument_group("Search-space constraints")
     search_space.add_argument("--k_max", type=int, default=4)

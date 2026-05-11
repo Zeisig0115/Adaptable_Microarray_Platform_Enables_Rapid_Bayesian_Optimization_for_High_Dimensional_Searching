@@ -12,6 +12,7 @@ import argparse
 import json
 import math
 import random
+import sys
 import time
 from collections import Counter, defaultdict
 from itertools import combinations
@@ -48,6 +49,40 @@ CONC_HI = 2.0
 LOG_LO = math.log10(CONC_LO)
 LOG_HI = math.log10(CONC_HI)
 CONC_DEFAULT = LOG_LO
+
+BO_PROFILES: dict[str, dict[str, Any]] = {
+    "default": {},
+    "fast_candidates": {
+        "training_fit_diagnostics": False,
+        "matrix_diagnostics": False,
+        "loo_diagnostics": False,
+        "kernel_parameter_summary": False,
+        "acq_stability_diagnostics": False,
+        "fit_maxiter": 100,
+        "num_top_subspaces": 20,
+        "sobol_max_samples": 128,
+        "screen_mc_samples": 16,
+        "num_restarts": 5,
+        "raw_samples": 128,
+        "acq_maxiter": 50,
+        "refine_mc_samples": 32,
+    },
+    "strong_candidates": {
+        "training_fit_diagnostics": False,
+        "matrix_diagnostics": False,
+        "loo_diagnostics": False,
+        "kernel_parameter_summary": False,
+        "acq_stability_diagnostics": False,
+        "fit_maxiter": 250,
+        "num_top_subspaces": 80,
+        "sobol_max_samples": 1024,
+        "screen_mc_samples": 64,
+        "num_restarts": 20,
+        "raw_samples": 512,
+        "acq_maxiter": 200,
+        "refine_mc_samples": 128,
+    },
+}
 
 
 def set_seeds(seed: int) -> None:

@@ -1,0 +1,63 @@
+{
+  "fit_info": {
+    "fit_seconds": 10.869590759277344,
+    "mll": -0.2183955284834062
+  },
+  "candidate_n": 32,
+  "stored_acq": {
+    "mean": 10.520920757399068,
+    "min": 9.955050557425642,
+    "max": 10.875304299900566
+  },
+  "posterior_pred_mean": {
+    "mean": 187611.93540854088,
+    "min": 170461.0679064045,
+    "max": 202791.97916760467
+  },
+  "posterior_pred_sigma": {
+    "mean": 13111.177642229846,
+    "min": 9570.419444374695,
+    "max": 15736.31258596136
+  },
+  "mc_repeats": {
+    "32": {
+      "elapsed_seconds_mean": 0.0889128843943278,
+      "acq_mean": 10.517467901462464,
+      "acq_min": 9.940397083621084,
+      "acq_max": 10.875264507329717,
+      "per_point_std_mean": 0.009034327845796542,
+      "per_point_std_max": 0.014452564420320866,
+      "repeat_spearman_mean": 0.9997556207233625,
+      "repeat_spearman_min": 0.9996334310850439,
+      "top10_jaccard_mean": 0.8787878787878789,
+      "top10_jaccard_min": 0.8181818181818182,
+      "spearman_vs_stored_acq_mean": 1.0
+    },
+    "128": {
+      "elapsed_seconds_mean": 0.08068402608235677,
+      "acq_mean": 10.519933348214174,
+      "acq_min": 9.946232234865091,
+      "acq_max": 10.876319515476384,
+      "per_point_std_mean": 0.0006078558357229832,
+      "per_point_std_max": 0.0011751033522294364,
+      "repeat_spearman_mean": 0.9997556207233625,
+      "repeat_spearman_min": 0.9996334310850439,
+      "top10_jaccard_mean": 1.0,
+      "top10_jaccard_min": 1.0,
+      "spearman_vs_stored_acq_mean": 0.9996334310850439
+    },
+    "512": {
+      "elapsed_seconds_mean": 0.08192578951517741,
+      "acq_mean": 10.519271583298965,
+      "acq_min": 9.944515663224879,
+      "acq_max": 10.876248414357782,
+      "per_point_std_mean": 0.0002587296725179283,
+      "per_point_std_max": 0.0005580055859144505,
+      "repeat_spearman_mean": 1.0,
+      "repeat_spearman_min": 1.0,
+      "top10_jaccard_mean": 1.0,
+      "top10_jaccard_min": 1.0,
+      "spearman_vs_stored_acq_mean": 0.9996334310850439
+    }
+  }
+}

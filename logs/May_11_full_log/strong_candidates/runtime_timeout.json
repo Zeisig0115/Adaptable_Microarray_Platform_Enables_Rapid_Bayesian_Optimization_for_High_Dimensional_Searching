@@ -1,0 +1,7 @@
+﻿{
+    "profile":  "strong_candidates",
+    "attempted_full_run_seconds":  14400.168,
+    "exit_code":  124,
+    "completed":  false,
+    "note":  "Full strong profile was interrupted by the 4-hour command timeout before diagnostics/candidates were written."
+}

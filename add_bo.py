@@ -715,14 +715,20 @@ def screen_top_subspaces(
     fixed_features_list: list[dict[int, float]],
     num_top_subspaces: int,
     sobol_max_samples: int,
+    screen_min_samples: int,
     mc_samples: int,
     seed: int,
     eval_batch_size: int,
 ) -> tuple[list[dict[int, float]], dict[str, Any]]:
     acqf = make_qlognei(model, X_baseline, mc_samples=mc_samples, seed=seed)
     d = bounds.shape[-1]
-    max_n_free = max(d - len(fixed) for fixed in fixed_features_list)
-    sobol_draw_size = min(sobol_max_samples, 2 ** max_n_free)
+
+    def samples_for_n_free(n_free: int) -> int:
+        legacy = 2 ** n_free
+        staged_floor = screen_min_samples * (2 ** (n_free // 2))
+        return int(min(sobol_max_samples, max(legacy, staged_floor)))
+
+    sobol_draw_size = max(samples_for_n_free(d - len(fixed)) for fixed in fixed_features_list)
     sobol = torch.quasirandom.SobolEngine(dimension=d, scramble=True, seed=seed)
     sobol_base = sobol.draw(sobol_draw_size).to(device=bounds.device, dtype=bounds.dtype)
     lb, ub = bounds
@@ -734,7 +740,7 @@ def screen_top_subspaces(
 
     for si, fixed in enumerate(fixed_features_list):
         n_free = d - len(fixed)
-        num_samples = min(sobol_max_samples, 2 ** n_free)
+        num_samples = samples_for_n_free(n_free)
         sample_stats[n_free] += num_samples
         X = lb + (ub - lb) * sobol_base[:num_samples].clone()
         for col, val in fixed.items():
@@ -810,6 +816,7 @@ def generate_candidates(
         fixed_features_list=fixed_features_list,
         num_top_subspaces=args.num_top_subspaces,
         sobol_max_samples=args.sobol_max_samples,
+        screen_min_samples=args.screen_min_samples,
         mc_samples=args.screen_mc_samples,
         seed=args.seed,
         eval_batch_size=args.eval_batch_size,
@@ -1074,6 +1081,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     acq_screen = p.add_argument_group("ACQ subspace screening")
     acq_screen.add_argument("--num_top_subspaces", type=int, default=40)
     acq_screen.add_argument("--sobol_max_samples", type=int, default=512)
+    acq_screen.add_argument("--screen_min_samples", type=int, default=1)
     acq_screen.add_argument("--screen_mc_samples", type=int, default=32)
 
     acq_opt = p.add_argument_group("ACQ mixed optimization")

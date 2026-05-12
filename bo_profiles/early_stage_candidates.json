@@ -1,5 +1,5 @@
 {
-  "description": "Fast new-set-kernel candidate mode: disable diagnostics and skip the old mixed baseline.",
+  "description": "Early-stage new-set-kernel candidate mode: richer screening and more retained subspaces while keeping fast-style mixed optimization budgets.",
   "args": {
     "models": ["new_additive_set"],
     "training_fit_diagnostics": false,
@@ -8,8 +8,9 @@
     "kernel_parameter_summary": false,
     "acq_stability_diagnostics": false,
     "fit_maxiter": 150,
-    "num_top_subspaces": 20,
+    "num_top_subspaces": 40,
     "sobol_max_samples": 128,
+    "screen_min_samples": 32,
     "screen_mc_samples": 16,
     "num_restarts": 5,
     "raw_samples": 128,

@@ -31,6 +31,7 @@ from botorch.sampling.normal import SobolQMCNormalSampler
 from gpytorch.constraints import Positive
 from gpytorch.kernels import Kernel
 from gpytorch.mlls import ExactMarginalLogLikelihood
+from gpytorch.priors import LogNormalPrior
 
 torch.set_default_dtype(torch.double)
 
@@ -239,9 +240,19 @@ class AdditiveSetKernel(Kernel):
         self.register_constraint("raw_scales", Positive())
         self.register_constraint("raw_ess_lengthscale", Positive())
         self.register_constraint("raw_conc_lengthscale", Positive())
+        initial_scales = torch.tensor([0.15, 0.35, 0.75, 0.25, 0.05], dtype=torch.double)
+        self.register_prior(
+            "scales_prior",
+            LogNormalPrior(
+                loc=initial_scales.log(),
+                scale=torch.full_like(initial_scales, 0.75),
+            ),
+            lambda module: module.scales,
+            lambda module, value: module._set_scales(value),
+        )
         self.initialize(
             raw_scales=self.raw_scales_constraint.inverse_transform(
-                torch.tensor([0.15, 0.35, 0.75, 0.25, 0.05], dtype=torch.double)
+                initial_scales
             ),
             raw_ess_lengthscale=self.raw_ess_lengthscale_constraint.inverse_transform(
                 torch.full((len(ess_dims),), 0.35, dtype=torch.double)
@@ -254,6 +265,11 @@ class AdditiveSetKernel(Kernel):
     @property
     def scales(self) -> torch.Tensor:
         return self.raw_scales_constraint.transform(self.raw_scales)
+
+    def _set_scales(self, value: torch.Tensor) -> None:
+        value = value.to(device=self.raw_scales.device, dtype=self.raw_scales.dtype)
+        value = value.clamp_min(1e-12)
+        self.initialize(raw_scales=self.raw_scales_constraint.inverse_transform(value))
 
     @property
     def ess_lengthscale(self) -> torch.Tensor:

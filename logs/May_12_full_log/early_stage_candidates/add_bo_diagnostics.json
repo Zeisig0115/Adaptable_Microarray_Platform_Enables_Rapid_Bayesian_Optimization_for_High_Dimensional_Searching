@@ -1,0 +1,121 @@
+{
+  "args": {
+    "bo_profile": "early_stage_candidates",
+    "input": "C:\\PyCharm\\Blueness\\logs\\May_10_full_log\\data_corrected.xlsx",
+    "sheet": "Corrected Data",
+    "target": "intensity",
+    "hrp": 0.0001,
+    "hrp_atol": 1e-12,
+    "filter_ctrl": true,
+    "device": "cpu",
+    "seed": 42,
+    "output_dir": "C:\\PyCharm\\Blueness\\logs\\May_12_full_log\\early_stage_candidates",
+    "models": [
+      "new_additive_set"
+    ],
+    "k_max": 4,
+    "fit_maxiter": 150,
+    "training_fit_diagnostics": false,
+    "matrix_diagnostics": false,
+    "loo_diagnostics": false,
+    "kernel_parameter_summary": false,
+    "acq_stability_diagnostics": false,
+    "stability_mc_samples": 64,
+    "stability_repeats": 5,
+    "acq_pool_size": 512,
+    "skip_candidates": false,
+    "q": 32,
+    "num_top_subspaces": 40,
+    "sobol_max_samples": 128,
+    "screen_min_samples": 32,
+    "screen_mc_samples": 16,
+    "num_restarts": 5,
+    "raw_samples": 128,
+    "acq_maxiter": 50,
+    "refine_mc_samples": 32,
+    "eval_batch_size": 256
+  },
+  "data": {
+    "rows_after_filters": 461,
+    "target_mean": 85428.2827853377,
+    "target_std": 26014.563565290526,
+    "target_min": -52.12563452,
+    "target_max": 151518.1277267,
+    "active_count_dist": {
+      "1": 198,
+      "2": 231,
+      "0": 32
+    },
+    "rows_any_additive_gt_encoding_hi": 0,
+    "additive_gt_encoding_hi_counts": {},
+    "raw_rows": 461,
+    "unique_encoded_rows": 446,
+    "duplicates_merged": 15,
+    "encoded_dim": 46,
+    "n_additives": 22
+  },
+  "models": {
+    "new_additive_set": {
+      "fit_seconds": 13.738266468048096,
+      "mll": -0.23082757198646678,
+      "n_subspaces_total": 9109,
+      "n_subspaces_top": 40,
+      "screen_best": 10.32221567489926,
+      "screen_worst_top": 9.350335226553929,
+      "screen_active_count_dist": {
+        "4": 39,
+        "3": 1
+      },
+      "screen_sample_stats_by_n_free": {
+        "2": 64,
+        "3": 1408,
+        "4": 29568,
+        "5": 197120,
+        "6": 936320
+      },
+      "candidate_opt_seconds": 2886.612096309662,
+      "candidate_joint_acq": 11.0700729282686,
+      "candidate_unique_before_topq": 32,
+      "candidate_n": 32,
+      "candidate_active_count_dist": {
+        "4": 32
+      },
+      "candidate_additive_counts": {
+        "imidazole": 32,
+        "cacl2": 32,
+        "bsa": 24,
+        "cmc": 22,
+        "sucrose": 6,
+        "edta": 5,
+        "feso4": 5,
+        "mgso4": 1,
+        "paa": 1
+      },
+      "candidate_pair_counts": {
+        "imidazole+cacl2": 32,
+        "bsa+imidazole": 24,
+        "bsa+cacl2": 24,
+        "cmc+imidazole": 22,
+        "cmc+cacl2": 22,
+        "cmc+bsa": 15,
+        "imidazole+sucrose": 6,
+        "sucrose+cacl2": 6,
+        "bsa+sucrose": 5,
+        "imidazole+edta": 5,
+        "edta+cacl2": 5,
+        "imidazole+feso4": 5,
+        "cacl2+feso4": 5,
+        "cmc+feso4": 3,
+        "bsa+edta": 2,
+        "cmc+edta": 2,
+        "cmc+sucrose": 1,
+        "bsa+mgso4": 1,
+        "imidazole+mgso4": 1,
+        "mgso4+cacl2": 1
+      },
+      "candidate_acq_mean": 10.508934960017175,
+      "candidate_acq_min": 9.95150898869085,
+      "candidate_acq_max": 10.85403120713168
+    }
+  }
+}

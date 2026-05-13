@@ -15,7 +15,7 @@ Root-level Python entrypoints — each is **independent**, not a library:
 | `add_bo_mod.py` | Variant of `add_bo.py` with a **chemistry-prior mean + kernel** (family descriptors: PEG / polymer / surfactant / polyol-sugar / protein / salt / chloride / sulfate / chelator / solvent + log MW). Goal: stronger inductive bias on higher-cardinality recipes. **Currently in validation, not the canonical pipeline** — do not assume results here override `add_bo.py`. | Only when the user explicitly mentions `add_bo_mod`, family-aware priors, or hierarchical additive structure. |
 | `fit_model.py` | Library for `ess_bo.py`. Provides `matern_with_hvarfner_prior`, `fit_gp` (handles `SingleTaskGP` and `MixedSingleTaskGP`), plus NUTS variants `fit_saasbo` / `fit_fullyb_gp` / `fit_saas_gp`. | Anything that changes prior, likelihood, kernel construction, or fitting routine for the essentials loop. |
 | `LHS.py` | One-shot Latin Hypercube sampler in log-space (`scipy.stats.qmc`). Generates the initial design CSV. | Only when changing how a new initial sample set is drawn. |
-| `fixed_noise_gp_probe.py` | One-off noise-sensitivity probe using a fixed-noise GP on the essentials data. | Only when explicitly debugging noise assumptions. |
+| `fixed_noise_ess_bo.py` | One-off noise-sensitivity probe using a fixed-noise GP on the essentials data. | Only when explicitly debugging noise assumptions. |
 | `data_loader_merge.py`, `data_loader_objectives.py` | Preprocess raw frame-level measurements into BO inputs (Hampel spike removal, AUC / intensity extraction). | Only when changing data ingestion. |
 | `archive/flat_encoding.py` | Historical version of the flat-encoding pipeline. **Do not edit** unless asked. | Reference only. |
 

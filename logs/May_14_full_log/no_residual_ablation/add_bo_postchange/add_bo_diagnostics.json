@@ -1,0 +1,93 @@
+{
+  "args": {
+    "bo_profile": "default",
+    "input": "C:\\PyCharm\\Blueness\\logs\\May_10_full_log\\data_corrected.xlsx",
+    "sheet": "Corrected Data",
+    "target": "intensity",
+    "hrp": 0.0001,
+    "hrp_atol": 1e-12,
+    "filter_ctrl": true,
+    "device": "cpu",
+    "seed": 42,
+    "output_dir": "C:\\PyCharm\\Blueness\\logs\\May_14_full_log\\no_residual_ablation\\add_bo_postchange",
+    "models": [
+      "new_additive_set"
+    ],
+    "k_max": 4,
+    "fit_maxiter": 75,
+    "training_fit_diagnostics": true,
+    "matrix_diagnostics": true,
+    "loo_diagnostics": true,
+    "kernel_parameter_summary": true,
+    "acq_stability_diagnostics": false,
+    "stability_mc_samples": 64,
+    "stability_repeats": 5,
+    "acq_pool_size": 512,
+    "skip_candidates": true,
+    "q": 32,
+    "num_top_subspaces": 40,
+    "sobol_max_samples": 512,
+    "screen_min_samples": 1,
+    "screen_mc_samples": 32,
+    "num_restarts": 10,
+    "raw_samples": 256,
+    "acq_maxiter": 100,
+    "refine_mc_samples": 64,
+    "eval_batch_size": 256
+  },
+  "data": {
+    "rows_after_filters": 461,
+    "target_mean": 85428.2827853377,
+    "target_std": 26014.563565290526,
+    "target_min": -52.12563452,
+    "target_max": 151518.1277267,
+    "active_count_dist": {
+      "1": 198,
+      "2": 231,
+      "0": 32
+    },
+    "rows_any_additive_gt_encoding_hi": 0,
+    "additive_gt_encoding_hi_counts": {},
+    "raw_rows": 461,
+    "unique_encoded_rows": 446,
+    "duplicates_merged": 15,
+    "encoded_dim": 46,
+    "n_additives": 22
+  },
+  "models": {
+    "new_additive_set": {
+      "fit_seconds": 4.625215530395508,
+      "mll": -0.23698197422503298,
+      "train_rmse": 2030.0049599307645,
+      "train_mae": 1409.9596865372366,
+      "train_r2": 0.9940144939897461,
+      "train_z_mean": -0.001551825604297943,
+      "train_z_std": 0.5065674056092103,
+      "train_frac_abs_z_gt_2": 0.004484304932735426,
+      "train_frac_abs_z_gt_3": 0.0,
+      "target_std": 26268.428212169514,
+      "kernel_diag_min": 0.5370438465882297,
+      "kernel_diag_max": 0.780341808906075,
+      "noise_standardized": 0.016406168353181615,
+      "eig_min": 0.016406168353181275,
+      "eig_max": 127.25122130177947,
+      "condition_number": 7756.303517213666,
+      "loo_rmse_model_space": 0.27329731109309485,
+      "loo_mae_model_space": 0.19816671804129216,
+      "loo_z_mean": 0.013692564707456374,
+      "loo_z_std": 0.984953392796485,
+      "loo_frac_abs_z_gt_2": 0.05829596412556054,
+      "loo_frac_abs_z_gt_3": 0.006726457399103139,
+      "loo_cholesky_jitter": 0.0,
+      "new_scale_ess": 0.269703075976294,
+      "new_scale_set": 0.26734077061193573,
+      "new_scale_main": 0.11270544514535193,
+      "new_scale_pair": 0.01788707202714147,
+      "new_ess_lengthscale": [
+        1.697284292844432,
+        0.8227716544159785
+      ],
+      "new_conc_lengthscale": 0.20358049026950414
+    }
+  }
+}

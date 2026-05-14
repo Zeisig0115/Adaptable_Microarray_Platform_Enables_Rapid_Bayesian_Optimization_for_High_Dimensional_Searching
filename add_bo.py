@@ -206,9 +206,7 @@ class AdditiveSetKernel(Kernel):
     * additive main effects are shared only when both recipes contain the same
       additive;
     * pairwise effects are shared only through shared additive pairs, with a
-      smaller initial scale for higher-order generalization;
-    * a small residual term can model same/subset active-set smoothness without
-      dominating the main/pair hierarchy.
+      smaller initial scale for higher-order generalization.
     """
 
     has_lengthscale = False
@@ -227,7 +225,7 @@ class AdditiveSetKernel(Kernel):
         self.register_buffer("conc_dims", torch.tensor(conc_dims, dtype=torch.long))
         self.register_parameter(
             "raw_scales",
-            torch.nn.Parameter(torch.zeros(5, dtype=torch.double)),
+            torch.nn.Parameter(torch.zeros(4, dtype=torch.double)),
         )
         self.register_parameter(
             "raw_ess_lengthscale",
@@ -240,7 +238,7 @@ class AdditiveSetKernel(Kernel):
         self.register_constraint("raw_scales", Positive())
         self.register_constraint("raw_ess_lengthscale", Positive())
         self.register_constraint("raw_conc_lengthscale", Positive())
-        initial_scales = torch.tensor([0.15, 0.35, 0.75, 0.25, 0.05], dtype=torch.double)
+        initial_scales = torch.tensor([0.15, 0.35, 0.75, 0.25], dtype=torch.double)
         self.register_prior(
             "scales_prior",
             LogNormalPrior(
@@ -307,14 +305,11 @@ class AdditiveSetKernel(Kernel):
         k_main = main_components.sum(dim=-1)
         k_pair = 0.5 * (k_main.pow(2) - main_components.pow(2).sum(dim=-1))
 
-        k_all_conc = torch.exp(-0.5 * conc_diff.pow(2).sum(dim=-1))
-        k_residual = k_set * k_all_conc
         return {
             "ess": k_ess,
             "set": k_set,
             "main": k_main,
             "pair": k_pair,
-            "residual": k_residual,
         }
 
     def forward(
@@ -328,13 +323,12 @@ class AdditiveSetKernel(Kernel):
         if last_dim_is_batch:
             raise NotImplementedError("AdditiveSetKernel does not support last_dim_is_batch.")
         p = self._parts(x1=x1, x2=x2)
-        s_ess, s_set, s_main, s_pair, s_res = self.scales
+        s_ess, s_set, s_main, s_pair = self.scales
         cov = p["ess"] * (
             s_ess
             + s_set * p["set"]
             + s_main * p["main"]
             + s_pair * p["pair"]
-            + s_res * p["residual"]
         )
         if diag:
             return torch.diagonal(cov, dim1=-2, dim2=-1)
@@ -555,7 +549,6 @@ def kernel_parameter_summary(model: SingleTaskGP) -> dict[str, Any]:
                 "new_scale_set": float(scales[1]),
                 "new_scale_main": float(scales[2]),
                 "new_scale_pair": float(scales[3]),
-                "new_scale_residual": float(scales[4]),
                 "new_ess_lengthscale": [
                     float(v) for v in covar.ess_lengthscale.detach().cpu().reshape(-1)
                 ],

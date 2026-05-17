@@ -271,6 +271,18 @@ class AdditiveSetKernel(Kernel):
             lambda module: module.scales,
             lambda module, value: module._set_scales(value),
         )
+        initial_ess_lengthscale = torch.full(
+            (len(ess_dims),), 0.35, dtype=torch.double
+        )
+        self.register_prior(
+            "ess_lengthscale_prior",
+            LogNormalPrior(
+                loc=initial_ess_lengthscale.log(),
+                scale=torch.full_like(initial_ess_lengthscale, 0.75),
+            ),
+            lambda module: module.ess_lengthscale,
+            lambda module, value: module._set_ess_lengthscale(value),
+        )
         # Per-additive priors. By default every additive shares the same
         # (loc, sigma); callers wanting family-aware or empirical-Bayes priors
         # can override these tensors after construction, or pass already-tuned
@@ -300,7 +312,7 @@ class AdditiveSetKernel(Kernel):
                 initial_scales
             ),
             raw_ess_lengthscale=self.raw_ess_lengthscale_constraint.inverse_transform(
-                torch.full((len(ess_dims),), 0.35, dtype=torch.double)
+                initial_ess_lengthscale
             ),
             raw_conc_lengthscale=self.raw_conc_lengthscale_constraint.inverse_transform(
                 initial_conc_lengthscale
@@ -322,6 +334,16 @@ class AdditiveSetKernel(Kernel):
     @property
     def ess_lengthscale(self) -> torch.Tensor:
         return self.raw_ess_lengthscale_constraint.transform(self.raw_ess_lengthscale)
+
+    def _set_ess_lengthscale(self, value: torch.Tensor) -> None:
+        value = value.to(
+            device=self.raw_ess_lengthscale.device,
+            dtype=self.raw_ess_lengthscale.dtype,
+        )
+        value = value.clamp_min(1e-12)
+        self.initialize(
+            raw_ess_lengthscale=self.raw_ess_lengthscale_constraint.inverse_transform(value)
+        )
 
     @property
     def conc_lengthscale(self) -> torch.Tensor:

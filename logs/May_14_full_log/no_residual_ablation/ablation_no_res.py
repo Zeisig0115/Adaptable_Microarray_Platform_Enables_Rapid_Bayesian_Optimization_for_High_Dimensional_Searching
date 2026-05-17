@@ -160,10 +160,16 @@ class AdditiveSetKernelNoRes(Kernel):
 
 
 def make_with_res_model(X, Y, codec, bounds):
+    # NOTE: ``AdditiveSetKernel`` in add_bo.py has since dropped the residual
+    # term and been upgraded to per-additive concentration lengthscale +
+    # per-additive main amplitude. The "with_res" label is kept only to
+    # preserve historical run identifiers; this builder now constructs the
+    # upgraded per-additive kernel.
     covar_module = AdditiveSetKernel(
         ess_dims=list(range(codec.n_ess)),
         cat_dims=codec.cat_dims,
         conc_dims=codec.conc_dims,
+        additive_names=codec.adds,
     )
     return SingleTaskGP(
         train_X=X,
@@ -192,19 +198,37 @@ def make_no_res_model(X, Y, codec, bounds):
 def kernel_parameter_summary(model: SingleTaskGP) -> dict[str, Any]:
     covar = model.covar_module
     scales = covar.scales.detach().cpu().numpy().tolist()
-    out: dict[str, Any] = {
+    ess_l = [float(v) for v in covar.ess_lengthscale.detach().cpu().reshape(-1)]
+    if isinstance(covar, AdditiveSetKernel):
+        # Upgraded per-additive variant: 3 global scales [s_ess, s_set, s_pair],
+        # per-additive conc_lengthscale and main_amp (length A each).
+        conc_l = covar.conc_lengthscale.detach().cpu().numpy().tolist()
+        main_amp = covar.main_amp.detach().cpu().numpy().tolist()
+        names = getattr(covar, "additive_names", None) or [
+            f"add_{i}" for i in range(len(conc_l))
+        ]
+        return {
+            "scale_ess": float(scales[0]),
+            "scale_set": float(scales[1]),
+            "scale_pair": float(scales[2]),
+            "ess_lengthscale": ess_l,
+            "conc_lengthscale_per_additive": {
+                n: float(v) for n, v in zip(names, conc_l)
+            },
+            "main_amp_per_additive": {
+                n: float(v) for n, v in zip(names, main_amp)
+            },
+        }
+    # Local AdditiveSetKernelNoRes: 4 scales [s_ess, s_set, s_main, s_pair],
+    # scalar conc_lengthscale.
+    return {
         "scale_ess": float(scales[0]),
         "scale_set": float(scales[1]),
         "scale_main": float(scales[2]),
         "scale_pair": float(scales[3]),
-        "ess_lengthscale": [
-            float(v) for v in covar.ess_lengthscale.detach().cpu().reshape(-1)
-        ],
+        "ess_lengthscale": ess_l,
         "conc_lengthscale": float(covar.conc_lengthscale.detach().cpu().item()),
     }
-    if isinstance(covar, AdditiveSetKernel):
-        out["scale_residual"] = float(scales[4])
-    return out
 
 
 def build_args() -> argparse.Namespace:
@@ -301,8 +325,17 @@ def run() -> None:
 
     flat_rows = []
     for name, metrics in results.items():
-        row = {"model": name}
-        row.update({k: v for k, v in metrics.items() if not isinstance(v, list)})
+        row: dict[str, Any] = {"model": name}
+        for k, v in metrics.items():
+            if isinstance(v, dict):
+                for sub_k, sub_v in v.items():
+                    row[f"{k}__{sub_k}"] = sub_v
+            elif isinstance(v, list):
+                # Keep list-of-floats columns out of CSV (e.g. ess_lengthscale)
+                # since their length is uniform anyway; they remain in the JSON.
+                continue
+            else:
+                row[k] = v
         flat_rows.append(row)
     csv_path = output_dir / "ablation_diagnostics.csv"
     pd.DataFrame(flat_rows).to_csv(csv_path, index=False, encoding="utf-8")
@@ -310,6 +343,11 @@ def run() -> None:
     print(f"\n[Output] {summary_path}")
     print(f"[Output] {csv_path}")
 
+    # Only metrics common to both kernels are compared head-to-head.
+    # ``with_residual`` now points at the upgraded per-additive AdditiveSetKernel
+    # which no longer carries ``scale_main`` / ``scale_residual`` and exposes
+    # ``conc_lengthscale`` as a per-additive dict (see CSV columns suffixed
+    # ``__<additive>``), so those are dropped from this paired table.
     metrics_to_compare = [
         "mll",
         "train_rmse",
@@ -321,10 +359,7 @@ def run() -> None:
         "condition_number",
         "scale_ess",
         "scale_set",
-        "scale_main",
         "scale_pair",
-        "scale_residual",
-        "conc_lengthscale",
         "acq_spearman_min",
         "acq_top25_jaccard_min",
     ]

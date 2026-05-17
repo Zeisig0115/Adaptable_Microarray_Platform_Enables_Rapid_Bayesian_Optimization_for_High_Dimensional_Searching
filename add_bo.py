@@ -203,10 +203,14 @@ class AdditiveSetKernel(Kernel):
 
     * active-set similarity uses Tanimoto/Jaccard, so common inactive additives
       do not make two sparse recipes look artificially similar;
-    * additive main effects are shared only when both recipes contain the same
-      additive;
-    * pairwise effects are shared only through shared additive pairs, with a
-      smaller initial scale for higher-order generalization.
+    * each additive has its own concentration lengthscale and main-effect
+      amplitude, so e.g. PEG200K (steep concentration response, large amplitude)
+      and Tween-80 (flatter, smaller amplitude) are modelled separately;
+    * main effects are shared only when both recipes contain the same additive;
+    * pair effects are shared only through shared additive pairs; per-pair
+      amplitudes emerge implicitly as ``alpha_i * alpha_j`` from the per-additive
+      main amplitudes via the closed form
+      ``k_pair = 0.5 * (k_main^2 - sum_i (alpha_i * m_i)^2)``.
     """
 
     has_lengthscale = False
@@ -216,29 +220,48 @@ class AdditiveSetKernel(Kernel):
         ess_dims: list[int],
         cat_dims: list[int],
         conc_dims: list[int],
+        additive_names: list[str] | None = None,
         eps: float = 1e-12,
     ) -> None:
         super().__init__()
         self.eps = eps
+        A = len(cat_dims)
+        if additive_names is not None and len(additive_names) != A:
+            raise ValueError(
+                f"additive_names length {len(additive_names)} does not match "
+                f"cat_dims length {A}."
+            )
+        # Stored only for diagnostic / prior-config bookkeeping; not used in
+        # forward.
+        self.additive_names = list(additive_names) if additive_names is not None else None
         self.register_buffer("ess_dims", torch.tensor(ess_dims, dtype=torch.long))
         self.register_buffer("cat_dims", torch.tensor(cat_dims, dtype=torch.long))
         self.register_buffer("conc_dims", torch.tensor(conc_dims, dtype=torch.long))
+        # Global scales are now [s_ess, s_set, s_pair]; the former global s_main
+        # is absorbed into the per-additive main amplitudes registered below.
         self.register_parameter(
             "raw_scales",
-            torch.nn.Parameter(torch.zeros(4, dtype=torch.double)),
+            torch.nn.Parameter(torch.zeros(3, dtype=torch.double)),
         )
         self.register_parameter(
             "raw_ess_lengthscale",
             torch.nn.Parameter(torch.zeros(len(ess_dims), dtype=torch.double)),
         )
+        # Per-additive concentration lengthscale (was a length-1 shared scalar).
         self.register_parameter(
             "raw_conc_lengthscale",
-            torch.nn.Parameter(torch.zeros(1, dtype=torch.double)),
+            torch.nn.Parameter(torch.zeros(A, dtype=torch.double)),
+        )
+        # Per-additive main-effect amplitude (new).
+        self.register_parameter(
+            "raw_main_amp",
+            torch.nn.Parameter(torch.zeros(A, dtype=torch.double)),
         )
         self.register_constraint("raw_scales", Positive())
         self.register_constraint("raw_ess_lengthscale", Positive())
         self.register_constraint("raw_conc_lengthscale", Positive())
-        initial_scales = torch.tensor([0.15, 0.35, 0.75, 0.25], dtype=torch.double)
+        self.register_constraint("raw_main_amp", Positive())
+        initial_scales = torch.tensor([0.15, 0.35, 0.25], dtype=torch.double)
         self.register_prior(
             "scales_prior",
             LogNormalPrior(
@@ -248,6 +271,30 @@ class AdditiveSetKernel(Kernel):
             lambda module: module.scales,
             lambda module, value: module._set_scales(value),
         )
+        # Per-additive priors. By default every additive shares the same
+        # (loc, sigma); callers wanting family-aware or empirical-Bayes priors
+        # can override these tensors after construction, or pass already-tuned
+        # priors via a future config hook.
+        initial_conc_lengthscale = torch.full((A,), 0.25, dtype=torch.double)
+        self.register_prior(
+            "conc_lengthscale_prior",
+            LogNormalPrior(
+                loc=initial_conc_lengthscale.log(),
+                scale=torch.full_like(initial_conc_lengthscale, 0.75),
+            ),
+            lambda module: module.conc_lengthscale,
+            lambda module, value: module._set_conc_lengthscale(value),
+        )
+        initial_main_amp = torch.full((A,), 0.75, dtype=torch.double)
+        self.register_prior(
+            "main_amp_prior",
+            LogNormalPrior(
+                loc=initial_main_amp.log(),
+                scale=torch.full_like(initial_main_amp, 0.75),
+            ),
+            lambda module: module.main_amp,
+            lambda module, value: module._set_main_amp(value),
+        )
         self.initialize(
             raw_scales=self.raw_scales_constraint.inverse_transform(
                 initial_scales
@@ -256,7 +303,10 @@ class AdditiveSetKernel(Kernel):
                 torch.full((len(ess_dims),), 0.35, dtype=torch.double)
             ),
             raw_conc_lengthscale=self.raw_conc_lengthscale_constraint.inverse_transform(
-                torch.tensor([0.25], dtype=torch.double)
+                initial_conc_lengthscale
+            ),
+            raw_main_amp=self.raw_main_amp_constraint.inverse_transform(
+                initial_main_amp
             ),
         )
 
@@ -276,6 +326,30 @@ class AdditiveSetKernel(Kernel):
     @property
     def conc_lengthscale(self) -> torch.Tensor:
         return self.raw_conc_lengthscale_constraint.transform(self.raw_conc_lengthscale)
+
+    def _set_conc_lengthscale(self, value: torch.Tensor) -> None:
+        value = value.to(
+            device=self.raw_conc_lengthscale.device,
+            dtype=self.raw_conc_lengthscale.dtype,
+        )
+        value = value.clamp_min(1e-12)
+        self.initialize(
+            raw_conc_lengthscale=self.raw_conc_lengthscale_constraint.inverse_transform(value)
+        )
+
+    @property
+    def main_amp(self) -> torch.Tensor:
+        return self.raw_main_amp_constraint.transform(self.raw_main_amp)
+
+    def _set_main_amp(self, value: torch.Tensor) -> None:
+        value = value.to(
+            device=self.raw_main_amp.device,
+            dtype=self.raw_main_amp.dtype,
+        )
+        value = value.clamp_min(1e-12)
+        self.initialize(
+            raw_main_amp=self.raw_main_amp_constraint.inverse_transform(value)
+        )
 
     def _parts(self, x1: torch.Tensor, x2: torch.Tensor) -> dict[str, torch.Tensor]:
         e1 = x1[..., self.ess_dims]
@@ -299,9 +373,15 @@ class AdditiveSetKernel(Kernel):
             torch.ones_like(union),
         )
 
+        # conc_lengthscale and main_amp are length-A vectors; both broadcast
+        # along the trailing additive axis of (..., n1, n2, A).
         conc_diff = (c1.unsqueeze(-2) - c2.unsqueeze(-3)) / self.conc_lengthscale
         k_conc_per_add = torch.exp(-0.5 * conc_diff.pow(2))
-        main_components = shared * k_conc_per_add
+        # Per-additive amplitude absorbs the old global s_main and gives the
+        # pair term an implicit alpha_i * alpha_j weighting via the closed form
+        # below: with m_i := shared_i * alpha_i * k_conc_per_add_i,
+        # k_pair = 0.5 * ((sum_i m_i)^2 - sum_i m_i^2) = sum_{i<j} m_i m_j.
+        main_components = shared * self.main_amp * k_conc_per_add
         k_main = main_components.sum(dim=-1)
         k_pair = 0.5 * (k_main.pow(2) - main_components.pow(2).sum(dim=-1))
 
@@ -323,11 +403,13 @@ class AdditiveSetKernel(Kernel):
         if last_dim_is_batch:
             raise NotImplementedError("AdditiveSetKernel does not support last_dim_is_batch.")
         p = self._parts(x1=x1, x2=x2)
-        s_ess, s_set, s_main, s_pair = self.scales
+        s_ess, s_set, s_pair = self.scales
+        # p["main"] already includes the per-additive amplitudes, so no global
+        # s_main multiplier here.
         cov = p["ess"] * (
             s_ess
             + s_set * p["set"]
-            + s_main * p["main"]
+            + p["main"]
             + s_pair * p["pair"]
         )
         if diag:
@@ -416,6 +498,7 @@ def make_new_model(
         ess_dims=list(range(codec.n_ess)),
         cat_dims=codec.cat_dims,
         conc_dims=codec.conc_dims,
+        additive_names=codec.adds,
     )
     return SingleTaskGP(
         train_X=X,
@@ -543,16 +626,18 @@ def kernel_parameter_summary(model: SingleTaskGP) -> dict[str, Any]:
     out: dict[str, Any] = {}
     if isinstance(covar, AdditiveSetKernel):
         scales = covar.scales.detach().cpu().numpy()
+        conc_l = covar.conc_lengthscale.detach().cpu().numpy()
+        main_amp = covar.main_amp.detach().cpu().numpy()
+        ess_l = covar.ess_lengthscale.detach().cpu().numpy()
+        names = covar.additive_names or [f"add_{i}" for i in range(len(conc_l))]
         out.update(
             {
                 "new_scale_ess": float(scales[0]),
                 "new_scale_set": float(scales[1]),
-                "new_scale_main": float(scales[2]),
-                "new_scale_pair": float(scales[3]),
-                "new_ess_lengthscale": [
-                    float(v) for v in covar.ess_lengthscale.detach().cpu().reshape(-1)
-                ],
-                "new_conc_lengthscale": float(covar.conc_lengthscale.detach().cpu().item()),
+                "new_scale_pair": float(scales[2]),
+                "new_ess_lengthscale": [float(v) for v in ess_l.reshape(-1)],
+                "new_conc_lengthscale": {n: float(v) for n, v in zip(names, conc_l)},
+                "new_main_amp": {n: float(v) for n, v in zip(names, main_amp)},
             }
         )
     else:
@@ -970,8 +1055,17 @@ def run(args: argparse.Namespace) -> None:
         )
     flat_rows = []
     for model_name, metrics in results.items():
-        row = {"model": model_name}
-        row.update(metrics)
+        row: dict[str, Any] = {"model": model_name}
+        for k, v in metrics.items():
+            if isinstance(v, dict):
+                # Per-additive (and similar) dict fields are exploded into
+                # ``<key>__<additive>`` columns so they are directly comparable
+                # across kernels in the CSV. Full nested structure is still
+                # available in the JSON output.
+                for sub_k, sub_v in v.items():
+                    row[f"{k}__{sub_k}"] = sub_v
+            else:
+                row[k] = v
         flat_rows.append(row)
     metrics_path = output_dir / "add_bo_diagnostics.csv"
     pd.DataFrame(flat_rows).to_csv(metrics_path, index=False, encoding="utf-8")

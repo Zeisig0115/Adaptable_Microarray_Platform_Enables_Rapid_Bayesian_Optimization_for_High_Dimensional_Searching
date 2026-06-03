@@ -28,7 +28,7 @@ torch.set_default_dtype(torch.double)
 ESSENTIALS = ["TMB", "H2O2"]
 PHYSICAL_BOUNDS = {"TMB": (0.005, 1.0), "H2O2": (0.005, 1.0)}
 LOGS_DIR = Path(__file__).with_name("logs")
-DEFAULT_MAY05_LOG_DIR = LOGS_DIR / "May_05_full_log"
+DEFAULT_MAY05_LOG_DIR = LOGS_DIR / "Jun_03_full_log"
 
 
 def set_seeds(seed: int) -> None:
@@ -374,7 +374,7 @@ def parse_args() -> argparse.Namespace:
         description="Compare replicate-level inferred-noise GP with condition-mean fixed-noise GP."
     )
     parser.add_argument("--input_dir", default=str(DEFAULT_MAY05_LOG_DIR))
-    parser.add_argument("--input_prefix", default="05_05")
+    parser.add_argument("--input_prefix", default="6_3")
     parser.add_argument("--target", default="AUC")
     parser.add_argument("--hrp", nargs="+", default=["1", "0.01", "0.0001"])
     parser.add_argument(

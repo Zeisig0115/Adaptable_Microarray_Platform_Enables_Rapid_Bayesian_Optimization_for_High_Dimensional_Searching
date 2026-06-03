@@ -171,9 +171,9 @@ def main() -> None:
         default="LHS",
         choices=["LHS", "BO1", "BO2"],
     )
-    parser.add_argument("--input_dir", default="./May_5_full_log", help="输入文件所在的文件夹")
-    parser.add_argument("--input_date_prefix", default="05_05", help="输入文件的前缀日期，默认为 05_05")
-    parser.add_argument("--output_dir", default="./May_5_full_log")
+    parser.add_argument("--input_dir", default="./logs/Jun_03_full_log", help="输入文件所在的文件夹")
+    parser.add_argument("--input_date_prefix", default="6_3", help="输入文件的前缀日期，默认为 05_05")
+    parser.add_argument("--output_dir", default="./logs/Jun_03_full_log")
     parser.add_argument("--hrp", type=float, nargs="+", default=[0.0001, 0.01, 1],
                         help="List of HRP values to process.")
     parser.add_argument(

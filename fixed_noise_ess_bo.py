@@ -289,11 +289,11 @@ def summarize_model(
 def run_for_hrp(args: argparse.Namespace, hrp: str, out_dir: Path, diag_dir: Path) -> list[dict[str, Any]]:
     device = torch.device(args.device)
     bounds = make_bounds(device)
-    data_path = Path(args.input_dir) / f"{args.input_prefix}_LHS_HRP_{hrp}_res.xlsx"
+    data_path = Path(args.input_dir) / f"{args.input_prefix}_BO2_HRP_{hrp}_res.xlsx"
     df = pd.read_excel(data_path)
     cond = prepare_condition_table(df, args.target, args.shrink_alpha)
     if not args.candidates_only:
-        cond_out = diag_dir / f"fixed_noise_gp_HRP_{hrp}_condition_noise.csv"
+        cond_out = diag_dir / f"BO2_HRP_{hrp}.csv"
         cond.to_csv(cond_out, index=False)
 
     grid_x = None if args.candidates_only else make_grid(bounds, args.grid_size, device)

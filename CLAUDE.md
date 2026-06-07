@@ -84,22 +84,6 @@ When the user proposes a new kernel term, prior, likelihood, transform, acquisit
 - If the proposal is weak or unsupported by the data, say so clearly.
 - Do not implement first and rationalize later.
 
-## Data and logs
-
-- No data file lives at the repo root. Experimental data and run outputs live under `logs/`.
-- Treat `data_corrected.xlsx` as a schema, not a fixed filename. Current convention: one row per recipe, with a target column directly readable by `add_bo.py`.
-- Unless told otherwise, assume additive workflow data is the latest relevant `data_corrected`-style file under the most recent `May_XX_full_log/`.
-- `logs/May_05_full_log/05_05_LHS_HRP_*.xlsx` are the May-5 LHS measurements used by the default essentials workflow.
-- Put new outputs under the matching `logs/May_DD_full_log/` folder or a focused subfolder. Do not create new top-level experiment folders under `logs/` for one-off runs.
-
-When judging model suitability for the dataset, inspect sample size, dimensionality, target range, replicate structure, apparent noise, outliers, scaling, and fixed-noise vs inferred-noise assumptions.
-
-Known preprocessing expectations unless current source says otherwise:
-
-- `ess_bo.py`: log10-transform essentials before normalization.
-- `add_bo.py`: flat encoding with additive binary indicators and additive log10 concentrations.
-- Both workflows use `Standardize(m=1)`.
-
 ## BO sanity checks
 
 For essentials changes, verify transformation consistency, log-space bounds, normalization consistency, and replicate-aware diagnostics without leakage.

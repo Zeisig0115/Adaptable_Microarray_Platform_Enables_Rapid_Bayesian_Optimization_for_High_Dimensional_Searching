@@ -170,7 +170,7 @@ def generate_candidates(
         q=q,
         num_restarts=num_restarts,
         raw_samples=raw_samples,
-        sequential=False,
+        sequential=True,
     )
     return candidates.detach()
 
@@ -380,7 +380,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--models",
         nargs="+",
-        default=["fixed_sem_raw"],
+        default=["fixed_sem_shrunk"],
         choices=["fixed_sem_raw", "fixed_sem_shrunk"],
     )
     parser.add_argument("--out_dir", default=str(DEFAULT_MAY05_LOG_DIR))

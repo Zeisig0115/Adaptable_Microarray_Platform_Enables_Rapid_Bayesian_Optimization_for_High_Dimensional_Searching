@@ -26,7 +26,7 @@ torch.set_default_dtype(torch.double)
 ESSENTIALS = ["TMB", "H2O2"]
 DEFAULT_Q = 32
 LOGS_DIR = Path(__file__).with_name("logs")
-DEFAULT_MAY05_LOG_DIR = LOGS_DIR / "May_05_full_log"
+DEFAULT_MAY05_LOG_DIR = LOGS_DIR / "Jun_03_full_log"
 
 def set_seeds(seed: int = 42):
     random.seed(seed)
@@ -259,7 +259,7 @@ def _setup_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--datafile",
         type=str,
-        default=str(DEFAULT_MAY05_LOG_DIR / "05_05_LHS_HRP_1_res.xlsx"),
+        default=str(DEFAULT_MAY05_LOG_DIR / "6_3_LHS_HRP_0.0001_res.xlsx"),
         help="包含历史数据的CSV或Excel文件路径",
     )
     parser.add_argument("--target", type=str, default="AUC", help="文件中的目标列名")

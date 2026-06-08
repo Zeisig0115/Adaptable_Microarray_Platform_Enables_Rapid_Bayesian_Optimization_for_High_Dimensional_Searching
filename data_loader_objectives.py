@@ -186,7 +186,7 @@ def main() -> None:
         action="store_true",
         help="Do not filter HRP; keep all HRP levels in one file.",
     )
-    parser.add_argument("--baseline", type=float, default=22.0,
+    parser.add_argument("--baseline", type=float, default=20.0,
                         help="Baseline intensity to subtract before feature extraction.")
     parser.add_argument("--signal_threshold", type=float, default=5.0)
     parser.add_argument("--retention_last_n", type=int, default=5, help="Number of final frames used for retention.")

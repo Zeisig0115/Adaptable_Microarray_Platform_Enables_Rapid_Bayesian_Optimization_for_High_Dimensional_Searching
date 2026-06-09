@@ -23,9 +23,11 @@ Use this order when priorities conflict:
 
 Default interpretations:
 
+- `data_loader_objectives.py`: preprocessing entry point. Converts frame-wise blueness curves into replicate-level tables with four objectives (max_intensity, reaction_speed, color_retention, AUC); baseline subtraction, odd-window moving average, conservative Hampel spike repair; loops/combines HRP into `{prefix}_{run_type}_HRP_{hrp|all}_res.xlsx` plus optional replicate summaries.
 - `add_bo.py`: additive BO workflow, candidate generation, 46D flat encoding, and active `AdditiveSetKernel` work.
 - `ess_bo.py`: 2D essentials-only BO workflow and replicate-aware diagnostics.
-- `fit_model.py`: GP fitting utilities used by `ess_bo.py`.
+- `fixed_noise_ess_bo.py`: condition-mean fixed-noise variant of the 2D essentials BO. Aggregates replicates to per-condition means and supplies SEM-based fixed observation variance (raw, or shrunk toward a pooled estimate) as `train_Yvar`; cumulative round pooling (LHS -> BO1 -> BO2 -> BO3, candidates named for the next round); condition-level LOO and posterior/covariance diagnostics.
+- `fit_model.py`: GP fitting utilities used by `ess_bo.py` and `fixed_noise_ess_bo.py`.
 
 The repo does not have a unified library. Root-level scripts may be independent. Do not treat this file, old summaries, or file maps as authoritative. Read the source.
 
@@ -106,7 +108,7 @@ When reporting source-dependent behavior, cite concrete files and functions insp
 
 ## Communication
 
-- Reply in the same language the user used.
+- Always reply in Chinese, whatever language the user writes in. This governs conversational replies only and does not relax the English-only rule below (code, comments, plot captions/titles/axis labels, filenames, etc.).
 - Keep routine work concise. Be precise and provenance-heavy for serious modeling or BoTorch / GPyTorch analysis.
 - Separate observed facts from inferences and state assumptions explicitly.
 - Ask for clarification only when the data file, scientific target, or intended workflow is genuinely ambiguous and cannot be handled safely with a stated assumption.

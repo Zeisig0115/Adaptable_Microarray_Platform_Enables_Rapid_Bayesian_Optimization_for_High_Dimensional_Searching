@@ -169,7 +169,7 @@ def main() -> None:
         "--run_type",
         type=str,
         default="BO2",
-        choices=["LHS", "BO1", "BO2"],
+        choices=["LHS", "BO1", "BO2", "BO3"],
     )
     parser.add_argument("--input_dir", default="./logs/Jun_04_full_log", help="输入文件所在的文件夹")
     parser.add_argument("--input_date_prefix", default="6_3", help="输入文件的前缀日期，默认为 05_05")

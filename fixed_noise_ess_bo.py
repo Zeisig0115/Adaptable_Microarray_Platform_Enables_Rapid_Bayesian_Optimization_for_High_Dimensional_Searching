@@ -187,7 +187,7 @@ def generate_candidates(
         q=q,
         num_restarts=num_restarts,
         raw_samples=raw_samples,
-        sequential=False,
+        sequential=True,
     )
     return candidates.detach()
 

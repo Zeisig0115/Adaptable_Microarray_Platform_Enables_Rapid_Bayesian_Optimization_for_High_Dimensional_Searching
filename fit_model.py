@@ -26,6 +26,44 @@ SQRT2 = sqrt(2)
 SQRT3 = sqrt(3)
 
 def matern_with_hvarfner_prior(ard_num_dims: int, nu: float = 1.5):
+    """Bare Matern kernel (no outputscale) with the Hvarfner dimension-scaled
+    LogNormal lengthscale prior and a 0.025 lengthscale floor.
+
+    Mirrors botorch.get_covar_module_with_dim_scaled_prior(use_rbf_kernel=False)
+    from [Hvarfner2024vanilla]: there is no ScaleKernel, so the signal variance is
+    fixed at 1 and is instead carried by the Standardize outcome transform.
+
+    Smoothness (nu): decided on the 6_3 LHS data.
+        Leave-one-condition-out (LOCO) over HRP in {1, 0.01, 0.0001} on the
+        fixed-noise essentials path (target=AUC, shrink_alpha=0.5, seed=0) ranked
+        held-out NLPD as rougher-is-better at every HRP: Matern 1/2 and 3/2 beat
+        Matern 5/2, which beats RBF. RBF was worst at every HRP and grew
+        over-confident (z_std up to ~2.5). Matern 1/2 and 3/2 are statistically
+        tied (paired dNLPD not significant, n=32): 3/2 took the nominal NLPD lead
+        at HRP=1, while 1/2 was best calibrated at HRP=0.01 (z_std ~ 0.96).
+        Default is nu=1.5 (Matern 3/2) as a forward-looking hedge -- it concedes
+        nothing measurable now and is better placed if more data reveals a
+        smoother surface. nu=0.5 (Matern 1/2) is the rougher, best-calibrated
+        alternative; pass it explicitly if wanted.
+
+    Lengthscale prior: keep it (it is a regularizer, not an accuracy boost).
+        On the fixed-noise path the noise is supplied, so only this lengthscale
+        prior is active (the Hvarfner noise prior is never used). It does NOT
+        improve held-out accuracy (paired dNLPD vs plain MLE and vs GammaPrior(3,6)
+        are both non-significant), but it is a necessary regularizer: pure MLE
+        fails to fit on some folds and collapses lengthscales to the 0.025 floor
+        (up to 29/32 folds) or to ~250 at low HRP, yielding BO-useless flat
+        posteriors. Hvarfner vs Gamma is indistinguishable on this data.
+
+    Validated on the fixed-noise essentials path; it carries over to ess_bo.py /
+    fit_gp because smoothness is a property of the shared 2D TMB/H2O2 surface.
+    Provenance: archive/loo_kernel_comparison.py, archive/loo_prior_comparison.py
+    (LOCO diagnostics, 2026-06).
+
+    Args:
+        ard_num_dims: Input dimensionality for ARD (one lengthscale per dim).
+        nu: Matern smoothness, one of {0.5, 1.5, 2.5}. Default 1.5; see above.
+    """
     ls_prior = LogNormalPrior(loc=SQRT2 + log(ard_num_dims) * 0.5, scale=SQRT3)
     base_kernel = MaternKernel(
         nu=nu,
@@ -91,7 +129,7 @@ def fit_gp(
         model = SingleTaskGP(
             train_X=X_tr,
             train_Y=y_tr,
-            covar_module=matern_with_hvarfner_prior(d, nu=0.5),
+            covar_module=matern_with_hvarfner_prior(d),
             input_transform=Normalize(d=d, bounds=bounds),
             outcome_transform=Standardize(m=1),
         ).to(dev)

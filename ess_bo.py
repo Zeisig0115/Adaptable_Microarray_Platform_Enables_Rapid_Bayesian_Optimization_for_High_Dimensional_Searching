@@ -180,7 +180,7 @@ class EssentialsBO:
             m_g = SingleTaskGP(
                 train_X=X_tr,
                 train_Y=y_tr,
-                covar_module=matern_with_hvarfner_prior(d, nu=0.5),
+                covar_module=matern_with_hvarfner_prior(d),
                 input_transform=Normalize(d=d, bounds=self.bounds),
                 outcome_transform=Standardize(m=1),
             ).to(self.device)

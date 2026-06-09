@@ -28,7 +28,7 @@ torch.set_default_dtype(torch.double)
 ESSENTIALS = ["TMB", "H2O2"]
 PHYSICAL_BOUNDS = {"TMB": (0.005, 1.0), "H2O2": (0.005, 1.0)}
 LOGS_DIR = Path(__file__).with_name("logs")
-DEFAULT_MAY05_LOG_DIR = LOGS_DIR / "Jun_03_full_log"
+DEFAULT_LOG_DIR = LOGS_DIR / "Jun_03_full_log"
 
 
 def set_seeds(seed: int) -> None:
@@ -90,7 +90,7 @@ def fit_model(
         train_X=train_x,
         train_Y=train_y,
         train_Yvar=train_yvar,
-        covar_module=matern_with_hvarfner_prior(d, nu=0.5),
+        covar_module=matern_with_hvarfner_prior(d),
         input_transform=Normalize(d=d, bounds=bounds),
         outcome_transform=Standardize(m=1),
     ).to(train_x)
@@ -286,18 +286,24 @@ def summarize_model(
     return row
 
 
-def run_for_hrp(args: argparse.Namespace, hrp: str, out_dir: Path, diag_dir: Path) -> list[dict[str, Any]]:
+def run_for_hrp(
+    args: argparse.Namespace,
+    hrp: str,
+    df: pd.DataFrame,
+    out_dir: Path,
+    diag_dir: Path,
+    cand_path: Path,
+) -> tuple[list[dict[str, Any]], list[pd.DataFrame]]:
     device = torch.device(args.device)
     bounds = make_bounds(device)
-    data_path = Path(args.input_dir) / f"{args.input_prefix}_LHS_HRP_{hrp}_res.xlsx"
-    df = pd.read_excel(data_path)
     cond = prepare_condition_table(df, args.target, args.shrink_alpha)
     if not args.candidates_only:
-        cond_out = diag_dir / f"fixed_noise_gp_HRP_{hrp}_condition_noise.csv"
+        cond_out = diag_dir / f"fixed_noise_gp_{args.run_type}_HRP_{hrp}_condition_noise.csv"
         cond.to_csv(cond_out, index=False)
 
     grid_x = None if args.candidates_only else make_grid(bounds, args.grid_size, device)
     summary_rows: list[dict[str, Any]] = []
+    cand_frames: list[pd.DataFrame] = []
 
     for model_name in args.models:
         print(f"\n=== HRP={hrp} model={model_name} ===", flush=True)
@@ -327,8 +333,9 @@ def run_for_hrp(args: argparse.Namespace, hrp: str, out_dir: Path, diag_dir: Pat
                 "latent_std": "uncertainty_std",
             }
         )
-        cand_path = out_dir / f"fixed_noise_gp_HRP_{hrp}_{model_name}_candidates.csv"
-        cand.to_csv(cand_path, index=False)
+        cand.insert(0, "HRP", float(hrp))
+        cand.insert(1, "model", model_name)
+        cand_frames.append(cand)
 
         extra = {
             "candidate_pred_max": float(cand["predicted_value"].max()),
@@ -342,16 +349,16 @@ def run_for_hrp(args: argparse.Namespace, hrp: str, out_dir: Path, diag_dir: Pat
             "baseline_rows": int(baseline_df.shape[0]),
         }
         if not args.candidates_only:
-            cov_path = diag_dir / f"fixed_noise_gp_HRP_{hrp}_{model_name}_candidate_latent_cov.csv"
+            cov_path = diag_dir / f"fixed_noise_gp_{args.run_type}_HRP_{hrp}_{model_name}_candidate_latent_cov.csv"
             covariance_frame(model, cand_x).to_csv(cov_path, index=False)
 
             grid = posterior_frame(model, grid_x)
-            grid_path = diag_dir / f"fixed_noise_gp_HRP_{hrp}_{model_name}_posterior_grid.csv"
+            grid_path = diag_dir / f"fixed_noise_gp_{args.run_type}_HRP_{hrp}_{model_name}_posterior_grid.csv"
             grid.to_csv(grid_path, index=False)
 
             in_sample = posterior_frame(model, train_x)
             in_sample["training_target"] = train_y.detach().cpu().numpy().reshape(-1)
-            in_sample_path = diag_dir / f"fixed_noise_gp_HRP_{hrp}_{model_name}_posterior_train.csv"
+            in_sample_path = diag_dir / f"fixed_noise_gp_{args.run_type}_HRP_{hrp}_{model_name}_posterior_train.csv"
             in_sample.to_csv(in_sample_path, index=False)
 
             extra.update(
@@ -366,15 +373,21 @@ def run_for_hrp(args: argparse.Namespace, hrp: str, out_dir: Path, diag_dir: Pat
             summarize_model(hrp, model_name, model, train_y, train_yvar, cond, extra)
         )
 
-    return summary_rows
+    return summary_rows, cand_frames
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Compare replicate-level inferred-noise GP with condition-mean fixed-noise GP."
     )
-    parser.add_argument("--input_dir", default=str(DEFAULT_MAY05_LOG_DIR))
+    parser.add_argument("--input_dir", default=str(DEFAULT_LOG_DIR))
     parser.add_argument("--input_prefix", default="6_3")
+    parser.add_argument(
+        "--run_type",
+        choices=["LHS", "BO1", "BO2"],
+        default="LHS",
+        help="Experiment round of the input data; reads {prefix}_{run_type}_HRP_all_res.xlsx.",
+    )
     parser.add_argument("--target", default="AUC")
     parser.add_argument("--hrp", nargs="+", default=["1", "0.01", "0.0001"])
     parser.add_argument(
@@ -383,7 +396,7 @@ def parse_args() -> argparse.Namespace:
         default=["fixed_sem_shrunk"],
         choices=["fixed_sem_raw", "fixed_sem_shrunk"],
     )
-    parser.add_argument("--out_dir", default=str(DEFAULT_MAY05_LOG_DIR))
+    parser.add_argument("--out_dir", default=str(DEFAULT_LOG_DIR))
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--device", choices=["cpu", "cuda"], default="cpu")
     parser.add_argument("--q", type=int, default=32)
@@ -415,15 +428,38 @@ def main() -> None:
     )
     warnings.filterwarnings("default")
 
+    data_path = Path(args.input_dir) / f"{args.input_prefix}_{args.run_type}_HRP_all_res.xlsx"
+    df_all = pd.read_excel(data_path)
+    if "HRP" not in df_all.columns:
+        raise ValueError(
+            f"{data_path} has no 'HRP' column; expected the combined "
+            f"{args.input_prefix}_{args.run_type}_HRP_all_res.xlsx (run data_loader_objectives "
+            f"with --keep_all_hrp)."
+        )
+    cand_path = out_dir / f"fixed_noise_gp_{args.run_type}_candidates_all.csv"
+
     rows: list[dict[str, Any]] = []
+    cand_frames: list[pd.DataFrame] = []
     for hrp in args.hrp:
-        rows.extend(run_for_hrp(args, hrp, out_dir, diag_dir))
+        df_hrp = df_all[np.isclose(df_all["HRP"].astype(float), float(hrp))].copy()
+        if df_hrp.empty:
+            print(f"Warning: no rows for HRP={hrp} in {data_path.name}; skipping.", flush=True)
+            continue
+        hrp_rows, hrp_cands = run_for_hrp(args, hrp, df_hrp, out_dir, diag_dir, cand_path)
+        rows.extend(hrp_rows)
+        cand_frames.extend(hrp_cands)
+
+    if not cand_frames:
+        raise ValueError(f"No HRP levels in {args.hrp} matched {data_path.name}.")
+    combined = pd.concat(cand_frames, ignore_index=True)
+    combined.to_csv(cand_path, index=False)
+    print(f"\nSaved combined candidates ({len(combined)} rows) -> {cand_path.resolve()}", flush=True)
 
     if not args.candidates_only:
         summary = pd.DataFrame(rows)
-        summary_path = diag_dir / "fixed_noise_gp_probe_summary.csv"
+        summary_path = diag_dir / f"fixed_noise_gp_{args.run_type}_probe_summary.csv"
         summary.to_csv(summary_path, index=False)
-        print(f"\nSaved summary -> {summary_path.resolve()}", flush=True)
+        print(f"Saved summary -> {summary_path.resolve()}", flush=True)
 
 
 if __name__ == "__main__":

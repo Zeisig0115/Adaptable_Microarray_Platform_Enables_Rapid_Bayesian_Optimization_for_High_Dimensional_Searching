@@ -184,6 +184,7 @@ def main() -> None:
     parser.add_argument(
         "--keep_all_hrp",
         action="store_true",
+        default=True,
         help="Do not filter HRP; keep all HRP levels in one file.",
     )
     parser.add_argument("--baseline", type=float, default=20.0,

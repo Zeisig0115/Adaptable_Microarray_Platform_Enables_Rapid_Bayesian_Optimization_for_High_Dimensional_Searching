@@ -28,7 +28,7 @@ torch.set_default_dtype(torch.double)
 ESSENTIALS = ["TMB", "H2O2"]
 PHYSICAL_BOUNDS = {"TMB": (0.005, 1.0), "H2O2": (0.005, 1.0)}
 LOGS_DIR = Path(__file__).with_name("logs")
-DEFAULT_LOG_DIR = LOGS_DIR / "Jun_03_full_log"
+DEFAULT_LOG_DIR = LOGS_DIR / "Jun_04_full_log"
 
 
 def set_seeds(seed: int) -> None:
@@ -298,7 +298,7 @@ def run_for_hrp(
     bounds = make_bounds(device)
     cond = prepare_condition_table(df, args.target, args.shrink_alpha)
     if not args.candidates_only:
-        cond_out = diag_dir / f"fixed_noise_gp_{args.run_type}_HRP_{hrp}_condition_noise.csv"
+        cond_out = diag_dir / f"{args.run_type}_HRP_{hrp}.csv"
         cond.to_csv(cond_out, index=False)
 
     grid_x = None if args.candidates_only else make_grid(bounds, args.grid_size, device)
@@ -349,16 +349,16 @@ def run_for_hrp(
             "baseline_rows": int(baseline_df.shape[0]),
         }
         if not args.candidates_only:
-            cov_path = diag_dir / f"fixed_noise_gp_{args.run_type}_HRP_{hrp}_{model_name}_candidate_latent_cov.csv"
+            cov_path = diag_dir / f"{args.run_type}_HRP_{hrp}_{model_name}_candidate_latent_cov.csv"
             covariance_frame(model, cand_x).to_csv(cov_path, index=False)
 
             grid = posterior_frame(model, grid_x)
-            grid_path = diag_dir / f"fixed_noise_gp_{args.run_type}_HRP_{hrp}_{model_name}_posterior_grid.csv"
+            grid_path = diag_dir / f"{args.run_type}_HRP_{hrp}_{model_name}_posterior_grid.csv"
             grid.to_csv(grid_path, index=False)
 
             in_sample = posterior_frame(model, train_x)
             in_sample["training_target"] = train_y.detach().cpu().numpy().reshape(-1)
-            in_sample_path = diag_dir / f"fixed_noise_gp_{args.run_type}_HRP_{hrp}_{model_name}_posterior_train.csv"
+            in_sample_path = diag_dir / f"{args.run_type}_HRP_{hrp}_{model_name}_posterior_train.csv"
             in_sample.to_csv(in_sample_path, index=False)
 
             extra.update(
@@ -436,7 +436,7 @@ def main() -> None:
             f"{args.input_prefix}_{args.run_type}_HRP_all_res.xlsx (run data_loader_objectives "
             f"with --keep_all_hrp)."
         )
-    cand_path = out_dir / f"fixed_noise_gp_{args.run_type}_candidates_all.csv"
+    cand_path = out_dir / f"{args.run_type}_candidates_all.csv"
 
     rows: list[dict[str, Any]] = []
     cand_frames: list[pd.DataFrame] = []

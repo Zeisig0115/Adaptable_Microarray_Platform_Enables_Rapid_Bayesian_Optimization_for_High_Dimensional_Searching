@@ -30,6 +30,23 @@ PHYSICAL_BOUNDS = {"TMB": (0.005, 1.0), "H2O2": (0.005, 1.0)}
 LOGS_DIR = Path(__file__).with_name("logs")
 DEFAULT_LOG_DIR = LOGS_DIR / "Jun_04_full_log"
 
+# Experimental rounds in chronological order. BO is cumulative: a run is trained
+# on every round up to and including run_type (pooled at the replicate level),
+# and the candidate file is named by the round that FOLLOWS run_type. Diagnostics
+# keep run_type because they describe the model fitted to the pooled data through
+# that round. Example: run_type=BO1 pools {LHS, BO1} and targets candidates for BO2.
+ROUND_SEQUENCE = ("LHS", "BO1", "BO2", "BO3")
+
+
+def cumulative_rounds(run_type: str) -> tuple[str, ...]:
+    """Rounds whose replicate data is pooled to train the model for this run."""
+    return ROUND_SEQUENCE[: ROUND_SEQUENCE.index(run_type) + 1]
+
+
+def next_round(run_type: str) -> str:
+    """Experimental round the generated candidates are meant to be run in."""
+    return ROUND_SEQUENCE[ROUND_SEQUENCE.index(run_type) + 1]
+
 
 def set_seeds(seed: int) -> None:
     random.seed(seed)
@@ -170,7 +187,7 @@ def generate_candidates(
         q=q,
         num_restarts=num_restarts,
         raw_samples=raw_samples,
-        sequential=True,
+        sequential=False,
     )
     return candidates.detach()
 
@@ -385,8 +402,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--run_type",
         choices=["LHS", "BO1", "BO2"],
-        default="LHS",
-        help="Experiment round of the input data; reads {prefix}_{run_type}_HRP_all_res.xlsx.",
+        default="BO2",
+        help=(
+            "Latest round of data on hand. The model is trained on every round up to "
+            "and including this one (cumulative pooling at the replicate level); "
+            "candidates are named for the next round."
+        ),
     )
     parser.add_argument("--target", default="AUC")
     parser.add_argument("--hrp", nargs="+", default=["1", "0.01", "0.0001"])
@@ -428,29 +449,46 @@ def main() -> None:
     )
     warnings.filterwarnings("default")
 
-    data_path = Path(args.input_dir) / f"{args.input_prefix}_{args.run_type}_HRP_all_res.xlsx"
-    df_all = pd.read_excel(data_path)
-    if "HRP" not in df_all.columns:
-        raise ValueError(
-            f"{data_path} has no 'HRP' column; expected the combined "
-            f"{args.input_prefix}_{args.run_type}_HRP_all_res.xlsx (run data_loader_objectives "
-            f"with --keep_all_hrp)."
-        )
-    cand_path = out_dir / f"{args.run_type}_candidates_all.csv"
+    rounds_to_pool = cumulative_rounds(args.run_type)
+    input_dir = Path(args.input_dir)
+    frames: list[pd.DataFrame] = []
+    for r in rounds_to_pool:
+        round_path = input_dir / f"{args.input_prefix}_{r}_HRP_all_res.xlsx"
+        if not round_path.exists():
+            raise FileNotFoundError(
+                f"Cumulative training needs round '{r}' but {round_path} is missing. "
+                f"Run: data_loader_objectives --run_type {r} --keep_all_hrp"
+            )
+        df_r = pd.read_excel(round_path)
+        if "HRP" not in df_r.columns:
+            raise ValueError(
+                f"{round_path} has no 'HRP' column; expected the combined "
+                f"{args.input_prefix}_{r}_HRP_all_res.xlsx (run data_loader_objectives "
+                f"with --keep_all_hrp)."
+            )
+        frames.append(df_r)
+    df_all = pd.concat(frames, ignore_index=True)
+    print(
+        f"Pooled rounds {list(rounds_to_pool)} -> {len(df_all)} replicate rows, "
+        f"{df_all.groupby(ESSENTIALS + ['HRP']).ngroups} conditions; "
+        f"candidates target round {next_round(args.run_type)}.",
+        flush=True,
+    )
+    cand_path = out_dir / f"{next_round(args.run_type)}_candidates_all.csv"
 
     rows: list[dict[str, Any]] = []
     cand_frames: list[pd.DataFrame] = []
     for hrp in args.hrp:
         df_hrp = df_all[np.isclose(df_all["HRP"].astype(float), float(hrp))].copy()
         if df_hrp.empty:
-            print(f"Warning: no rows for HRP={hrp} in {data_path.name}; skipping.", flush=True)
+            print(f"Warning: no rows for HRP={hrp} in pooled rounds {list(rounds_to_pool)}; skipping.", flush=True)
             continue
         hrp_rows, hrp_cands = run_for_hrp(args, hrp, df_hrp, out_dir, diag_dir, cand_path)
         rows.extend(hrp_rows)
         cand_frames.extend(hrp_cands)
 
     if not cand_frames:
-        raise ValueError(f"No HRP levels in {args.hrp} matched {data_path.name}.")
+        raise ValueError(f"No HRP levels in {args.hrp} matched pooled rounds {list(rounds_to_pool)}.")
     combined = pd.concat(cand_frames, ignore_index=True)
     combined.to_csv(cand_path, index=False)
     print(f"\nSaved combined candidates ({len(combined)} rows) -> {cand_path.resolve()}", flush=True)

@@ -168,7 +168,7 @@ def main() -> None:
     parser.add_argument(
         "--run_type",
         type=str,
-        default="LHS",
+        default="BO2",
         choices=["LHS", "BO1", "BO2"],
     )
     parser.add_argument("--input_dir", default="./logs/Jun_04_full_log", help="输入文件所在的文件夹")

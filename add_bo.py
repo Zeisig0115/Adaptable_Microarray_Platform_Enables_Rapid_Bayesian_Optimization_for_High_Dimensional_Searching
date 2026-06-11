@@ -439,8 +439,8 @@ class AdditiveSetKernel(Kernel):
         return cov
 
 
-class PrunedHammingKernel(Kernel):
-    r"""Pruned product-form reduction of the BoTorch MixedSingleTaskGP kernel.
+class BaselineKernel(Kernel):
+    r"""Baseline product-form reduction of the BoTorch MixedSingleTaskGP kernel.
 
     A deliberately minimal baseline for stepwise refinement. It keeps the flat
     46D encoding but collapses the old sum+product mixed kernel down to a single
@@ -449,16 +449,16 @@ class PrunedHammingKernel(Kernel):
 
         k(x, x') = sigma_f^2
             * exp( -0.5 * sum_{d in ess_dims} ((x_d - x'_d) / ell_ess_d)^2
-                   -0.5 / ell_conc^2 * sum_{j in conc_dims} (x_j - x'_j)^2 )
+                   -0.5 * sum_{j in conc_dims} ((x_j - x'_j) / ell_conc_j)^2 )
             * exp( -theta * sum_{i in cat_dims} 1[ b_i != b'_i ] )
 
     where ``b_i = 1[x_{cat_dims[i]} > 0.5]`` is read directly from the explicit
     binary indicator dimensions (no concentration thresholding, so the kernel
     stays continuous along the concentration axes). The continuous block uses
     per-essential ARD lengthscales ``ell_ess`` (length ``len(ess_dims)``) and a
-    single shared lengthscale ``ell_conc`` for all additive concentrations; the
-    categorical block uses a single decay ``theta``; one global ``sigma_f^2``
-    scales the product.
+    per-additive concentration ARD lengthscales ``ell_conc`` (length
+    ``len(conc_dims)``); the categorical block uses a single decay ``theta``;
+    one global ``sigma_f^2`` scales the product.
 
     ``theta`` is the per-flip decay: flipping one additive on/off multiplies the
     categorical factor by ``exp(-theta)``. This absorbs any fixed Hamming
@@ -476,12 +476,20 @@ class PrunedHammingKernel(Kernel):
         ess_dims: list[int],
         cat_dims: list[int],
         conc_dims: list[int],
+        additive_names: list[str] | None = None,
     ) -> None:
         super().__init__()
+        if additive_names is not None and len(additive_names) != len(conc_dims):
+            raise ValueError(
+                f"additive_names length {len(additive_names)} does not match "
+                f"conc_dims length {len(conc_dims)}."
+            )
+        self.additive_names = list(additive_names) if additive_names is not None else None
         self.register_buffer("ess_dims", torch.tensor(ess_dims, dtype=torch.long))
         self.register_buffer("cat_dims", torch.tensor(cat_dims, dtype=torch.long))
         self.register_buffer("conc_dims", torch.tensor(conc_dims, dtype=torch.long))
         n_ess = len(ess_dims)
+        n_conc = len(conc_dims)
 
         self.register_parameter(
             "raw_outputscale", torch.nn.Parameter(torch.zeros((), dtype=torch.double))
@@ -492,7 +500,7 @@ class PrunedHammingKernel(Kernel):
         )
         self.register_parameter(
             "raw_conc_lengthscale",
-            torch.nn.Parameter(torch.zeros((), dtype=torch.double)),
+            torch.nn.Parameter(torch.zeros(n_conc, dtype=torch.double)),
         )
         self.register_parameter(
             "raw_theta", torch.nn.Parameter(torch.zeros((), dtype=torch.double))
@@ -507,7 +515,7 @@ class PrunedHammingKernel(Kernel):
 
         init_outputscale = torch.tensor(1.0, dtype=torch.double)
         init_ess_lengthscale = torch.full((n_ess,), 0.35, dtype=torch.double)
-        init_conc_lengthscale = torch.tensor(0.3, dtype=torch.double)
+        init_conc_lengthscale = torch.full((n_conc,), 0.3, dtype=torch.double)
         init_theta = torch.tensor(0.5, dtype=torch.double)
         sigma = torch.tensor(0.75, dtype=torch.double)
 
@@ -528,7 +536,10 @@ class PrunedHammingKernel(Kernel):
         )
         self.register_prior(
             "conc_lengthscale_prior",
-            LogNormalPrior(loc=init_conc_lengthscale.log(), scale=sigma),
+            LogNormalPrior(
+                loc=init_conc_lengthscale.log(),
+                scale=torch.full_like(init_conc_lengthscale, 0.75),
+            ),
             lambda m: m.conc_lengthscale,
             lambda m, v: m._set_conc_lengthscale(v),
         )
@@ -606,7 +617,7 @@ class PrunedHammingKernel(Kernel):
     ) -> torch.Tensor:
         if last_dim_is_batch:
             raise NotImplementedError(
-                "PrunedHammingKernel does not support last_dim_is_batch."
+                "BaselineKernel does not support last_dim_is_batch."
             )
         e1 = x1[..., self.ess_dims]
         e2 = x2[..., self.ess_dims]
@@ -722,16 +733,17 @@ def make_new_model(
     ).to(X)
 
 
-def make_simple_model(
+def make_baseline_model(
     X: torch.Tensor,
     Y: torch.Tensor,
     codec: FlatCodec,
     bounds: torch.Tensor,
 ) -> SingleTaskGP:
-    covar_module = PrunedHammingKernel(
+    covar_module = BaselineKernel(
         ess_dims=list(range(codec.n_ess)),
         cat_dims=codec.cat_dims,
         conc_dims=codec.conc_dims,
+        additive_names=codec.adds,
     )
     return SingleTaskGP(
         train_X=X,
@@ -745,7 +757,7 @@ def make_simple_model(
 MODEL_BUILDERS = [
     ("old_mixed_hamming", make_old_model),
     ("new_additive_set", make_new_model),
-    ("simple_product_hamming", make_simple_model),
+    ("baseline_kernel", make_baseline_model),
 ]
 
 
@@ -874,14 +886,16 @@ def kernel_parameter_summary(model: SingleTaskGP) -> dict[str, Any]:
                 "new_main_amp": {n: float(v) for n, v in zip(names, main_amp)},
             }
         )
-    elif isinstance(covar, PrunedHammingKernel):
+    elif isinstance(covar, BaselineKernel):
         ess_l = covar.ess_lengthscale.detach().cpu().numpy()
+        conc_l = covar.conc_lengthscale.detach().cpu().numpy()
+        names = covar.additive_names or [f"add_{i}" for i in range(len(conc_l))]
         out.update(
             {
-                "simple_outputscale": float(covar.outputscale.detach().cpu()),
-                "simple_ess_lengthscale": [float(v) for v in ess_l.reshape(-1)],
-                "simple_conc_lengthscale": float(covar.conc_lengthscale.detach().cpu()),
-                "simple_theta": float(covar.theta.detach().cpu()),
+                "baseline_outputscale": float(covar.outputscale.detach().cpu()),
+                "baseline_ess_lengthscale": [float(v) for v in ess_l.reshape(-1)],
+                "baseline_conc_lengthscale": {n: float(v) for n, v in zip(names, conc_l)},
+                "baseline_theta": float(covar.theta.detach().cpu()),
             }
         )
     else:

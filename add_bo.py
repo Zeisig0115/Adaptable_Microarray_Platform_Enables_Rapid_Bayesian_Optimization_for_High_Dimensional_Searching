@@ -440,33 +440,21 @@ class AdditiveSetKernel(Kernel):
 
 
 class BaselineKernel(Kernel):
-    r"""Baseline product-form reduction of the BoTorch MixedSingleTaskGP kernel.
+    r"""Main-effect additive-block baseline kernel.
 
-    A deliberately minimal baseline for stepwise refinement. It keeps the flat
-    46D encoding but collapses the old sum+product mixed kernel down to a single
-    product of one continuous RBF block and one isotropic exponential-Hamming
-    block::
+    This keeps the 46D flat encoding but replaces the previous product over all
+    additive concentration dimensions and scalar Hamming term with an additive
+    block over shared active additives::
 
-        k(x, x') = sigma_f^2
-            * exp( -0.5 * sum_{d in ess_dims} ((x_d - x'_d) / ell_ess_d)^2
-                   -0.5 * sum_{j in conc_dims} ((x_j - x'_j) / ell_conc_j)^2 )
-            * exp( -theta * sum_{i in cat_dims} 1[ b_i != b'_i ] )
+        k(x, x') = sigma_f^2 * k_ess(x, x')
+            * (c0 + s_main * sum_j b_j b'_j k_conc_j(x_j, x'_j))
 
-    where ``b_i = 1[x_{cat_dims[i]} > 0.5]`` is read directly from the explicit
-    binary indicator dimensions (no concentration thresholding, so the kernel
-    stays continuous along the concentration axes). The continuous block uses
-    per-essential ARD lengthscales ``ell_ess`` (length ``len(ess_dims)``) and a
-    per-additive concentration ARD lengthscales ``ell_conc`` (length
-    ``len(conc_dims)``); the categorical block uses a single decay ``theta``;
-    one global ``sigma_f^2`` scales the product.
-
-    ``theta`` is the per-flip decay: flipping one additive on/off multiplies the
-    categorical factor by ``exp(-theta)``. This absorbs any fixed Hamming
-    normalization constant (e.g. dividing the count by ``2 * k_max``); such a
-    constant is redundant with ``theta`` and only shifts its prior scale.
-
-    Not differentiable w.r.t. the categorical dimensions; optimize acquisition in
-    a mixed fashion (e.g. ``optimize_acqf_mixed``), as for ``MixedSingleTaskGP``.
+    where ``b_j = 1[x_{cat_dims[j]} > 0.5]`` and
+    ``k_conc_j = exp(-0.5 * ((x_j - x'_j) / ell_conc_j)^2)``. Additive
+    concentration similarity contributes only when both recipes contain the same
+    additive. The diagonal therefore changes with active additive count. The
+    ``sigma_f^2``, ``c0``, and ``s_main`` terms are partially scale-redundant but
+    are kept explicit for comparison with the additive-block experiment.
     """
 
     has_lengthscale = False
@@ -479,20 +467,31 @@ class BaselineKernel(Kernel):
         additive_names: list[str] | None = None,
     ) -> None:
         super().__init__()
-        if additive_names is not None and len(additive_names) != len(conc_dims):
+        if len(cat_dims) != len(conc_dims):
+            raise ValueError(
+                f"cat_dims length {len(cat_dims)} does not match "
+                f"conc_dims length {len(conc_dims)}."
+            )
+        if additive_names is not None and len(additive_names) != len(cat_dims):
             raise ValueError(
                 f"additive_names length {len(additive_names)} does not match "
-                f"conc_dims length {len(conc_dims)}."
+                f"cat_dims length {len(cat_dims)}."
             )
         self.additive_names = list(additive_names) if additive_names is not None else None
         self.register_buffer("ess_dims", torch.tensor(ess_dims, dtype=torch.long))
         self.register_buffer("cat_dims", torch.tensor(cat_dims, dtype=torch.long))
         self.register_buffer("conc_dims", torch.tensor(conc_dims, dtype=torch.long))
         n_ess = len(ess_dims)
-        n_conc = len(conc_dims)
+        n_add = len(cat_dims)
 
         self.register_parameter(
             "raw_outputscale", torch.nn.Parameter(torch.zeros((), dtype=torch.double))
+        )
+        self.register_parameter(
+            "raw_c0", torch.nn.Parameter(torch.zeros((), dtype=torch.double))
+        )
+        self.register_parameter(
+            "raw_main_scale", torch.nn.Parameter(torch.zeros((), dtype=torch.double))
         )
         self.register_parameter(
             "raw_ess_lengthscale",
@@ -500,23 +499,22 @@ class BaselineKernel(Kernel):
         )
         self.register_parameter(
             "raw_conc_lengthscale",
-            torch.nn.Parameter(torch.zeros(n_conc, dtype=torch.double)),
-        )
-        self.register_parameter(
-            "raw_theta", torch.nn.Parameter(torch.zeros((), dtype=torch.double))
+            torch.nn.Parameter(torch.zeros(n_add, dtype=torch.double)),
         )
         for raw_name in (
             "raw_outputscale",
+            "raw_c0",
+            "raw_main_scale",
             "raw_ess_lengthscale",
             "raw_conc_lengthscale",
-            "raw_theta",
         ):
             self.register_constraint(raw_name, Positive())
 
         init_outputscale = torch.tensor(1.0, dtype=torch.double)
+        init_c0 = torch.tensor(0.35, dtype=torch.double)
+        init_main_scale = torch.tensor(0.35, dtype=torch.double)
         init_ess_lengthscale = torch.full((n_ess,), 0.35, dtype=torch.double)
-        init_conc_lengthscale = torch.full((n_conc,), 0.3, dtype=torch.double)
-        init_theta = torch.tensor(0.5, dtype=torch.double)
+        init_conc_lengthscale = torch.full((n_add,), 0.3, dtype=torch.double)
         sigma = torch.tensor(0.75, dtype=torch.double)
 
         self.register_prior(
@@ -524,6 +522,18 @@ class BaselineKernel(Kernel):
             LogNormalPrior(loc=init_outputscale.log(), scale=sigma),
             lambda m: m.outputscale,
             lambda m, v: m._set_outputscale(v),
+        )
+        self.register_prior(
+            "c0_prior",
+            LogNormalPrior(loc=init_c0.log(), scale=sigma),
+            lambda m: m.c0,
+            lambda m, v: m._set_c0(v),
+        )
+        self.register_prior(
+            "main_scale_prior",
+            LogNormalPrior(loc=init_main_scale.log(), scale=sigma),
+            lambda m: m.main_scale,
+            lambda m, v: m._set_main_scale(v),
         )
         self.register_prior(
             "ess_lengthscale_prior",
@@ -543,16 +553,14 @@ class BaselineKernel(Kernel):
             lambda m: m.conc_lengthscale,
             lambda m, v: m._set_conc_lengthscale(v),
         )
-        self.register_prior(
-            "theta_prior",
-            LogNormalPrior(loc=init_theta.log(), scale=sigma),
-            lambda m: m.theta,
-            lambda m, v: m._set_theta(v),
-        )
 
         self.initialize(
             raw_outputscale=self.raw_outputscale_constraint.inverse_transform(
                 init_outputscale
+            ),
+            raw_c0=self.raw_c0_constraint.inverse_transform(init_c0),
+            raw_main_scale=self.raw_main_scale_constraint.inverse_transform(
+                init_main_scale
             ),
             raw_ess_lengthscale=self.raw_ess_lengthscale_constraint.inverse_transform(
                 init_ess_lengthscale
@@ -560,7 +568,6 @@ class BaselineKernel(Kernel):
             raw_conc_lengthscale=self.raw_conc_lengthscale_constraint.inverse_transform(
                 init_conc_lengthscale
             ),
-            raw_theta=self.raw_theta_constraint.inverse_transform(init_theta),
         )
 
     @property
@@ -571,6 +578,24 @@ class BaselineKernel(Kernel):
         value = value.to(self.raw_outputscale).clamp_min(1e-12)
         self.initialize(
             raw_outputscale=self.raw_outputscale_constraint.inverse_transform(value)
+        )
+
+    @property
+    def c0(self) -> torch.Tensor:
+        return self.raw_c0_constraint.transform(self.raw_c0)
+
+    def _set_c0(self, value: torch.Tensor) -> None:
+        value = value.to(self.raw_c0).clamp_min(1e-12)
+        self.initialize(raw_c0=self.raw_c0_constraint.inverse_transform(value))
+
+    @property
+    def main_scale(self) -> torch.Tensor:
+        return self.raw_main_scale_constraint.transform(self.raw_main_scale)
+
+    def _set_main_scale(self, value: torch.Tensor) -> None:
+        value = value.to(self.raw_main_scale).clamp_min(1e-12)
+        self.initialize(
+            raw_main_scale=self.raw_main_scale_constraint.inverse_transform(value)
         )
 
     @property
@@ -597,16 +622,6 @@ class BaselineKernel(Kernel):
             )
         )
 
-    @property
-    def theta(self) -> torch.Tensor:
-        return self.raw_theta_constraint.transform(self.raw_theta)
-
-    def _set_theta(self, value: torch.Tensor) -> None:
-        value = value.to(self.raw_theta).clamp_min(1e-12)
-        self.initialize(
-            raw_theta=self.raw_theta_constraint.inverse_transform(value)
-        )
-
     def forward(
         self,
         x1: torch.Tensor,
@@ -621,21 +636,20 @@ class BaselineKernel(Kernel):
             )
         e1 = x1[..., self.ess_dims]
         e2 = x2[..., self.ess_dims]
-        c1 = x1[..., self.conc_dims]
-        c2 = x2[..., self.conc_dims]
         b1 = (x1[..., self.cat_dims] > 0.5).to(dtype=x1.dtype)
         b2 = (x2[..., self.cat_dims] > 0.5).to(dtype=x2.dtype)
+        c1 = x1[..., self.conc_dims]
+        c2 = x2[..., self.conc_dims]
 
         ess_diff = (e1.unsqueeze(-2) - e2.unsqueeze(-3)) / self.ess_lengthscale
-        ess_quad = ess_diff.pow(2).sum(dim=-1)
+        k_ess = torch.exp(-0.5 * ess_diff.pow(2).sum(dim=-1))
+
+        shared = b1.unsqueeze(-2) * b2.unsqueeze(-3)
         conc_diff = (c1.unsqueeze(-2) - c2.unsqueeze(-3)) / self.conc_lengthscale
-        conc_quad = conc_diff.pow(2).sum(dim=-1)
-        k_cont = torch.exp(-0.5 * (ess_quad + conc_quad))
+        k_conc_per_add = torch.exp(-0.5 * conc_diff.pow(2))
+        k_main = (shared * k_conc_per_add).sum(dim=-1)
 
-        hamming = (b1.unsqueeze(-2) != b2.unsqueeze(-3)).to(dtype=x1.dtype).sum(dim=-1)
-        k_cat = torch.exp(-self.theta * hamming)
-
-        cov = self.outputscale * k_cont * k_cat
+        cov = self.outputscale * k_ess * (self.c0 + self.main_scale * k_main)
         if diag:
             return torch.diagonal(cov, dim1=-2, dim2=-1)
         return cov
@@ -893,9 +907,16 @@ def kernel_parameter_summary(model: SingleTaskGP) -> dict[str, Any]:
         out.update(
             {
                 "baseline_outputscale": float(covar.outputscale.detach().cpu()),
+                "baseline_c0": float(covar.c0.detach().cpu()),
+                "baseline_main_scale": float(covar.main_scale.detach().cpu()),
+                "baseline_effective_c0": float(
+                    (covar.outputscale * covar.c0).detach().cpu()
+                ),
+                "baseline_effective_main_scale": float(
+                    (covar.outputscale * covar.main_scale).detach().cpu()
+                ),
                 "baseline_ess_lengthscale": [float(v) for v in ess_l.reshape(-1)],
                 "baseline_conc_lengthscale": {n: float(v) for n, v in zip(names, conc_l)},
-                "baseline_theta": float(covar.theta.detach().cpu()),
             }
         )
     else:

@@ -439,6 +439,197 @@ class AdditiveSetKernel(Kernel):
         return cov
 
 
+class PrunedHammingKernel(Kernel):
+    r"""Pruned product-form reduction of the BoTorch MixedSingleTaskGP kernel.
+
+    A deliberately minimal baseline for stepwise refinement. It keeps the flat
+    46D encoding but collapses the old sum+product mixed kernel down to a single
+    product of one continuous RBF block and one isotropic exponential-Hamming
+    block::
+
+        k(x, x') = sigma_f^2
+            * exp( -0.5 * sum_{d in ess_dims} ((x_d - x'_d) / ell_ess_d)^2
+                   -0.5 / ell_conc^2 * sum_{j in conc_dims} (x_j - x'_j)^2 )
+            * exp( -theta * sum_{i in cat_dims} 1[ b_i != b'_i ] )
+
+    where ``b_i = 1[x_{cat_dims[i]} > 0.5]`` is read directly from the explicit
+    binary indicator dimensions (no concentration thresholding, so the kernel
+    stays continuous along the concentration axes). The continuous block uses
+    per-essential ARD lengthscales ``ell_ess`` (length ``len(ess_dims)``) and a
+    single shared lengthscale ``ell_conc`` for all additive concentrations; the
+    categorical block uses a single decay ``theta``; one global ``sigma_f^2``
+    scales the product.
+
+    ``theta`` is the per-flip decay: flipping one additive on/off multiplies the
+    categorical factor by ``exp(-theta)``. This absorbs any fixed Hamming
+    normalization constant (e.g. dividing the count by ``2 * k_max``); such a
+    constant is redundant with ``theta`` and only shifts its prior scale.
+
+    Not differentiable w.r.t. the categorical dimensions; optimize acquisition in
+    a mixed fashion (e.g. ``optimize_acqf_mixed``), as for ``MixedSingleTaskGP``.
+    """
+
+    has_lengthscale = False
+
+    def __init__(
+        self,
+        ess_dims: list[int],
+        cat_dims: list[int],
+        conc_dims: list[int],
+    ) -> None:
+        super().__init__()
+        self.register_buffer("ess_dims", torch.tensor(ess_dims, dtype=torch.long))
+        self.register_buffer("cat_dims", torch.tensor(cat_dims, dtype=torch.long))
+        self.register_buffer("conc_dims", torch.tensor(conc_dims, dtype=torch.long))
+        n_ess = len(ess_dims)
+
+        self.register_parameter(
+            "raw_outputscale", torch.nn.Parameter(torch.zeros((), dtype=torch.double))
+        )
+        self.register_parameter(
+            "raw_ess_lengthscale",
+            torch.nn.Parameter(torch.zeros(n_ess, dtype=torch.double)),
+        )
+        self.register_parameter(
+            "raw_conc_lengthscale",
+            torch.nn.Parameter(torch.zeros((), dtype=torch.double)),
+        )
+        self.register_parameter(
+            "raw_theta", torch.nn.Parameter(torch.zeros((), dtype=torch.double))
+        )
+        for raw_name in (
+            "raw_outputscale",
+            "raw_ess_lengthscale",
+            "raw_conc_lengthscale",
+            "raw_theta",
+        ):
+            self.register_constraint(raw_name, Positive())
+
+        init_outputscale = torch.tensor(1.0, dtype=torch.double)
+        init_ess_lengthscale = torch.full((n_ess,), 0.35, dtype=torch.double)
+        init_conc_lengthscale = torch.tensor(0.3, dtype=torch.double)
+        init_theta = torch.tensor(0.5, dtype=torch.double)
+        sigma = torch.tensor(0.75, dtype=torch.double)
+
+        self.register_prior(
+            "outputscale_prior",
+            LogNormalPrior(loc=init_outputscale.log(), scale=sigma),
+            lambda m: m.outputscale,
+            lambda m, v: m._set_outputscale(v),
+        )
+        self.register_prior(
+            "ess_lengthscale_prior",
+            LogNormalPrior(
+                loc=init_ess_lengthscale.log(),
+                scale=torch.full_like(init_ess_lengthscale, 0.75),
+            ),
+            lambda m: m.ess_lengthscale,
+            lambda m, v: m._set_ess_lengthscale(v),
+        )
+        self.register_prior(
+            "conc_lengthscale_prior",
+            LogNormalPrior(loc=init_conc_lengthscale.log(), scale=sigma),
+            lambda m: m.conc_lengthscale,
+            lambda m, v: m._set_conc_lengthscale(v),
+        )
+        self.register_prior(
+            "theta_prior",
+            LogNormalPrior(loc=init_theta.log(), scale=sigma),
+            lambda m: m.theta,
+            lambda m, v: m._set_theta(v),
+        )
+
+        self.initialize(
+            raw_outputscale=self.raw_outputscale_constraint.inverse_transform(
+                init_outputscale
+            ),
+            raw_ess_lengthscale=self.raw_ess_lengthscale_constraint.inverse_transform(
+                init_ess_lengthscale
+            ),
+            raw_conc_lengthscale=self.raw_conc_lengthscale_constraint.inverse_transform(
+                init_conc_lengthscale
+            ),
+            raw_theta=self.raw_theta_constraint.inverse_transform(init_theta),
+        )
+
+    @property
+    def outputscale(self) -> torch.Tensor:
+        return self.raw_outputscale_constraint.transform(self.raw_outputscale)
+
+    def _set_outputscale(self, value: torch.Tensor) -> None:
+        value = value.to(self.raw_outputscale).clamp_min(1e-12)
+        self.initialize(
+            raw_outputscale=self.raw_outputscale_constraint.inverse_transform(value)
+        )
+
+    @property
+    def ess_lengthscale(self) -> torch.Tensor:
+        return self.raw_ess_lengthscale_constraint.transform(self.raw_ess_lengthscale)
+
+    def _set_ess_lengthscale(self, value: torch.Tensor) -> None:
+        value = value.to(self.raw_ess_lengthscale).clamp_min(1e-12)
+        self.initialize(
+            raw_ess_lengthscale=self.raw_ess_lengthscale_constraint.inverse_transform(
+                value
+            )
+        )
+
+    @property
+    def conc_lengthscale(self) -> torch.Tensor:
+        return self.raw_conc_lengthscale_constraint.transform(self.raw_conc_lengthscale)
+
+    def _set_conc_lengthscale(self, value: torch.Tensor) -> None:
+        value = value.to(self.raw_conc_lengthscale).clamp_min(1e-12)
+        self.initialize(
+            raw_conc_lengthscale=self.raw_conc_lengthscale_constraint.inverse_transform(
+                value
+            )
+        )
+
+    @property
+    def theta(self) -> torch.Tensor:
+        return self.raw_theta_constraint.transform(self.raw_theta)
+
+    def _set_theta(self, value: torch.Tensor) -> None:
+        value = value.to(self.raw_theta).clamp_min(1e-12)
+        self.initialize(
+            raw_theta=self.raw_theta_constraint.inverse_transform(value)
+        )
+
+    def forward(
+        self,
+        x1: torch.Tensor,
+        x2: torch.Tensor,
+        diag: bool = False,
+        last_dim_is_batch: bool = False,
+        **params: Any,
+    ) -> torch.Tensor:
+        if last_dim_is_batch:
+            raise NotImplementedError(
+                "PrunedHammingKernel does not support last_dim_is_batch."
+            )
+        e1 = x1[..., self.ess_dims]
+        e2 = x2[..., self.ess_dims]
+        c1 = x1[..., self.conc_dims]
+        c2 = x2[..., self.conc_dims]
+        b1 = (x1[..., self.cat_dims] > 0.5).to(dtype=x1.dtype)
+        b2 = (x2[..., self.cat_dims] > 0.5).to(dtype=x2.dtype)
+
+        ess_diff = (e1.unsqueeze(-2) - e2.unsqueeze(-3)) / self.ess_lengthscale
+        ess_quad = ess_diff.pow(2).sum(dim=-1)
+        conc_diff = (c1.unsqueeze(-2) - c2.unsqueeze(-3)) / self.conc_lengthscale
+        conc_quad = conc_diff.pow(2).sum(dim=-1)
+        k_cont = torch.exp(-0.5 * (ess_quad + conc_quad))
+
+        hamming = (b1.unsqueeze(-2) != b2.unsqueeze(-3)).to(dtype=x1.dtype).sum(dim=-1)
+        k_cat = torch.exp(-self.theta * hamming)
+
+        cov = self.outputscale * k_cont * k_cat
+        if diag:
+            return torch.diagonal(cov, dim1=-2, dim2=-1)
+        return cov
+
+
 def load_training_data(args: argparse.Namespace) -> tuple[pd.DataFrame, FlatCodec]:
     path = Path(args.input)
     if not path.exists():
@@ -531,9 +722,30 @@ def make_new_model(
     ).to(X)
 
 
+def make_simple_model(
+    X: torch.Tensor,
+    Y: torch.Tensor,
+    codec: FlatCodec,
+    bounds: torch.Tensor,
+) -> SingleTaskGP:
+    covar_module = PrunedHammingKernel(
+        ess_dims=list(range(codec.n_ess)),
+        cat_dims=codec.cat_dims,
+        conc_dims=codec.conc_dims,
+    )
+    return SingleTaskGP(
+        train_X=X,
+        train_Y=Y,
+        covar_module=covar_module,
+        input_transform=Normalize(d=codec.d, bounds=bounds, indices=codec.cont_dims),
+        outcome_transform=Standardize(m=1),
+    ).to(X)
+
+
 MODEL_BUILDERS = [
     ("old_mixed_hamming", make_old_model),
     ("new_additive_set", make_new_model),
+    ("simple_product_hamming", make_simple_model),
 ]
 
 
@@ -660,6 +872,16 @@ def kernel_parameter_summary(model: SingleTaskGP) -> dict[str, Any]:
                 "new_ess_lengthscale": [float(v) for v in ess_l.reshape(-1)],
                 "new_conc_lengthscale": {n: float(v) for n, v in zip(names, conc_l)},
                 "new_main_amp": {n: float(v) for n, v in zip(names, main_amp)},
+            }
+        )
+    elif isinstance(covar, PrunedHammingKernel):
+        ess_l = covar.ess_lengthscale.detach().cpu().numpy()
+        out.update(
+            {
+                "simple_outputscale": float(covar.outputscale.detach().cpu()),
+                "simple_ess_lengthscale": [float(v) for v in ess_l.reshape(-1)],
+                "simple_conc_lengthscale": float(covar.conc_lengthscale.detach().cpu()),
+                "simple_theta": float(covar.theta.detach().cpu()),
             }
         )
     else:

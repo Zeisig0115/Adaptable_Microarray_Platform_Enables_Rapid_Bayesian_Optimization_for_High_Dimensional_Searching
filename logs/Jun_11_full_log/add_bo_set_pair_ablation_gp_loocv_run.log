@@ -1,0 +1,71 @@
+=== seed 0 ===
+  [seed 0] baseline_kernel          mll=-0.31315 loo_rmse=0.28999 noise=0.07255 cond=3938.1
+  [seed 0] per_add_alpha            mll=-0.26132 loo_rmse=0.28758 noise=0.07151 cond=3283.7
+  [seed 0] per_add_alpha_set        mll=-0.10822 loo_rmse=0.27097 noise=0.01276 cond=12282.1
+  [seed 0] per_add_alpha_pair       mll=-0.17580 loo_rmse=0.29939 noise=0.02503 cond=10300.3
+  [seed 0] per_add_alpha_set_pair   mll=-0.10860 loo_rmse=0.27090 noise=0.01377 cond=11888.2
+  [seed 0] new_additive_set         mll=-0.16414 loo_rmse=0.27128 noise=0.01091 cond=15827.1
+=== seed 1 ===
+  [seed 1] baseline_kernel          mll=-0.31315 loo_rmse=0.28999 noise=0.07255 cond=3938.1
+  [seed 1] per_add_alpha            mll=-0.26132 loo_rmse=0.28758 noise=0.07151 cond=3283.7
+  [seed 1] per_add_alpha_set        mll=-0.10822 loo_rmse=0.27097 noise=0.01276 cond=12282.1
+  [seed 1] per_add_alpha_pair       mll=-0.17580 loo_rmse=0.29939 noise=0.02503 cond=10300.3
+  [seed 1] per_add_alpha_set_pair   mll=-0.10860 loo_rmse=0.27090 noise=0.01377 cond=11888.2
+  [seed 1] new_additive_set         mll=-0.16414 loo_rmse=0.27128 noise=0.01091 cond=15827.1
+=== seed 2 ===
+  [seed 2] baseline_kernel          mll=-0.31315 loo_rmse=0.28999 noise=0.07255 cond=3938.1
+  [seed 2] per_add_alpha            mll=-0.26132 loo_rmse=0.28758 noise=0.07151 cond=3283.7
+  [seed 2] per_add_alpha_set        mll=-0.10822 loo_rmse=0.27097 noise=0.01276 cond=12282.1
+  [seed 2] per_add_alpha_pair       mll=-0.17580 loo_rmse=0.29939 noise=0.02503 cond=10300.3
+  [seed 2] per_add_alpha_set_pair   mll=-0.10860 loo_rmse=0.27090 noise=0.01377 cond=11888.2
+  [seed 2] new_additive_set         mll=-0.16414 loo_rmse=0.27128 noise=0.01091 cond=15827.1
+=== seed 3 ===
+  [seed 3] baseline_kernel          mll=-0.31315 loo_rmse=0.28999 noise=0.07255 cond=3938.1
+  [seed 3] per_add_alpha            mll=-0.26132 loo_rmse=0.28758 noise=0.07151 cond=3283.7
+  [seed 3] per_add_alpha_set        mll=-0.10822 loo_rmse=0.27097 noise=0.01276 cond=12282.1
+  [seed 3] per_add_alpha_pair       mll=-0.17580 loo_rmse=0.29939 noise=0.02503 cond=10300.3
+  [seed 3] per_add_alpha_set_pair   mll=-0.10860 loo_rmse=0.27090 noise=0.01377 cond=11888.2
+  [seed 3] new_additive_set         mll=-0.16414 loo_rmse=0.27128 noise=0.01091 cond=15827.1
+=== seed 4 ===
+  [seed 4] baseline_kernel          mll=-0.31315 loo_rmse=0.28999 noise=0.07255 cond=3938.1
+  [seed 4] per_add_alpha            mll=-0.26132 loo_rmse=0.28758 noise=0.07151 cond=3283.7
+  [seed 4] per_add_alpha_set        mll=-0.10822 loo_rmse=0.27097 noise=0.01276 cond=12282.1
+  [seed 4] per_add_alpha_pair       mll=-0.17580 loo_rmse=0.29939 noise=0.02503 cond=10300.3
+  [seed 4] per_add_alpha_set_pair   mll=-0.10860 loo_rmse=0.27090 noise=0.01377 cond=11888.2
+  [seed 4] new_additive_set         mll=-0.16414 loo_rmse=0.27128 noise=0.01091 cond=15827.1
+=== seed 5 ===
+  [seed 5] baseline_kernel          mll=-0.31315 loo_rmse=0.28999 noise=0.07255 cond=3938.1
+  [seed 5] per_add_alpha            mll=-0.26132 loo_rmse=0.28758 noise=0.07151 cond=3283.7
+  [seed 5] per_add_alpha_set        mll=-0.10822 loo_rmse=0.27097 noise=0.01276 cond=12282.1
+  [seed 5] per_add_alpha_pair       mll=-0.17580 loo_rmse=0.29939 noise=0.02503 cond=10300.3
+  [seed 5] per_add_alpha_set_pair   mll=-0.10860 loo_rmse=0.27090 noise=0.01377 cond=11888.2
+  [seed 5] new_additive_set         mll=-0.16414 loo_rmse=0.27128 noise=0.01091 cond=15827.1
+=== seed 6 ===
+  [seed 6] baseline_kernel          mll=-0.31315 loo_rmse=0.28999 noise=0.07255 cond=3938.1
+  [seed 6] per_add_alpha            mll=-0.26132 loo_rmse=0.28758 noise=0.07151 cond=3283.7
+  [seed 6] per_add_alpha_set        mll=-0.10822 loo_rmse=0.27097 noise=0.01276 cond=12282.1
+  [seed 6] per_add_alpha_pair       mll=-0.17580 loo_rmse=0.29939 noise=0.02503 cond=10300.3
+  [seed 6] per_add_alpha_set_pair   mll=-0.10860 loo_rmse=0.27090 noise=0.01377 cond=11888.2
+  [seed 6] new_additive_set         mll=-0.16414 loo_rmse=0.27128 noise=0.01091 cond=15827.1
+=== seed 7 ===
+  [seed 7] baseline_kernel          mll=-0.31315 loo_rmse=0.28999 noise=0.07255 cond=3938.1
+  [seed 7] per_add_alpha            mll=-0.26132 loo_rmse=0.28758 noise=0.07151 cond=3283.7
+  [seed 7] per_add_alpha_set        mll=-0.10822 loo_rmse=0.27097 noise=0.01276 cond=12282.1
+  [seed 7] per_add_alpha_pair       mll=-0.17580 loo_rmse=0.29939 noise=0.02503 cond=10300.3
+  [seed 7] per_add_alpha_set_pair   mll=-0.10860 loo_rmse=0.27090 noise=0.01377 cond=11888.2
+  [seed 7] new_additive_set         mll=-0.16414 loo_rmse=0.27128 noise=0.01091 cond=15827.1
+=== seed 8 ===
+  [seed 8] baseline_kernel          mll=-0.31315 loo_rmse=0.28999 noise=0.07255 cond=3938.1
+  [seed 8] per_add_alpha            mll=-0.26132 loo_rmse=0.28758 noise=0.07151 cond=3283.7
+  [seed 8] per_add_alpha_set        mll=-0.10822 loo_rmse=0.27097 noise=0.01276 cond=12282.1
+  [seed 8] per_add_alpha_pair       mll=-0.17580 loo_rmse=0.29939 noise=0.02503 cond=10300.3
+  [seed 8] per_add_alpha_set_pair   mll=-0.10860 loo_rmse=0.27090 noise=0.01377 cond=11888.2
+  [seed 8] new_additive_set         mll=-0.16414 loo_rmse=0.27128 noise=0.01091 cond=15827.1
+=== seed 9 ===
+  [seed 9] baseline_kernel          mll=-0.31315 loo_rmse=0.28999 noise=0.07255 cond=3938.1
+  [seed 9] per_add_alpha            mll=-0.26132 loo_rmse=0.28758 noise=0.07151 cond=3283.7
+  [seed 9] per_add_alpha_set        mll=-0.10822 loo_rmse=0.27097 noise=0.01276 cond=12282.1
+  [seed 9] per_add_alpha_pair       mll=-0.17580 loo_rmse=0.29939 noise=0.02503 cond=10300.3
+  [seed 9] per_add_alpha_set_pair   mll=-0.10860 loo_rmse=0.27090 noise=0.01377 cond=11888.2
+  [seed 9] new_additive_set         mll=-0.16414 loo_rmse=0.27128 noise=0.01091 cond=15827.1
+[Output] -> C:\PyCharm\Blueness\logs\Jun_11_full_log\add_bo_set_pair_ablation_gp_loocv

@@ -655,6 +655,316 @@ class BaselineKernel(Kernel):
         return cov
 
 
+class PerAddAlphaKernel(Kernel):
+    r"""Per-additive main-effect kernel with optional set and pair terms.
+
+    Generalises :class:`BaselineKernel` by replacing the single scalar
+    ``main_scale`` with a per-additive amplitude ``alpha_j`` (the ``per_add_alpha``
+    structure), and optionally re-using the Tanimoto active-set term and/or the
+    closed-form pair-interaction term from :class:`AdditiveSetKernel`::
+
+        k(x, x') = sigma_f^2 * k_ess(e, e') * (
+            c0
+            + sum_j b_j b'_j alpha_j k_conc_j(c_j, c'_j)       # per-additive main
+            + s_set  * Tanimoto(b, b')         [if use_set]    # active-set overlap
+            + s_pair * k_pair(x, x')           [if use_pair]   # closed-form pairs
+        )
+
+    with ``m_i = b_i b'_i alpha_i k_conc_i``, ``k_main = sum_i m_i`` and
+    ``k_pair = 0.5 (k_main^2 - sum_i m_i^2) = sum_{i<j} m_i m_j``. The set and
+    pair closed forms are byte-for-byte the ones in :class:`AdditiveSetKernel`,
+    so the ``use_set`` / ``use_pair`` toggles isolate each term as a
+    single-parameter ablation over the ``per_add_alpha`` baseline. ``sigma_f^2``,
+    ``c0`` and the amplitudes stay partially scale-redundant, kept explicit for
+    comparison. Shared parameters use the :class:`BaselineKernel` priors (the
+    scalar ``main_scale`` simply becomes a length-A ``main_amp`` vector); the
+    optional ``s_set`` / ``s_pair`` use the :class:`AdditiveSetKernel` scale
+    priors, so each ablation adds the term under that term's own prior.
+    """
+
+    has_lengthscale = False
+
+    def __init__(
+        self,
+        ess_dims: list[int],
+        cat_dims: list[int],
+        conc_dims: list[int],
+        additive_names: list[str] | None = None,
+        use_set: bool = False,
+        use_pair: bool = False,
+        eps: float = 1e-12,
+    ) -> None:
+        super().__init__()
+        if len(cat_dims) != len(conc_dims):
+            raise ValueError(
+                f"cat_dims length {len(cat_dims)} does not match "
+                f"conc_dims length {len(conc_dims)}."
+            )
+        if additive_names is not None and len(additive_names) != len(cat_dims):
+            raise ValueError(
+                f"additive_names length {len(additive_names)} does not match "
+                f"cat_dims length {len(cat_dims)}."
+            )
+        self.use_set = bool(use_set)
+        self.use_pair = bool(use_pair)
+        self.eps = float(eps)
+        self.additive_names = list(additive_names) if additive_names is not None else None
+        self.register_buffer("ess_dims", torch.tensor(ess_dims, dtype=torch.long))
+        self.register_buffer("cat_dims", torch.tensor(cat_dims, dtype=torch.long))
+        self.register_buffer("conc_dims", torch.tensor(conc_dims, dtype=torch.long))
+        n_ess = len(ess_dims)
+        n_add = len(cat_dims)
+
+        self.register_parameter(
+            "raw_outputscale", torch.nn.Parameter(torch.zeros((), dtype=torch.double))
+        )
+        self.register_parameter(
+            "raw_c0", torch.nn.Parameter(torch.zeros((), dtype=torch.double))
+        )
+        # Per-additive main amplitude: the scalar main_scale of BaselineKernel
+        # becomes a length-A vector (the per_add_alpha structure).
+        self.register_parameter(
+            "raw_main_amp",
+            torch.nn.Parameter(torch.zeros(n_add, dtype=torch.double)),
+        )
+        self.register_parameter(
+            "raw_ess_lengthscale",
+            torch.nn.Parameter(torch.zeros(n_ess, dtype=torch.double)),
+        )
+        self.register_parameter(
+            "raw_conc_lengthscale",
+            torch.nn.Parameter(torch.zeros(n_add, dtype=torch.double)),
+        )
+        raw_names = [
+            "raw_outputscale",
+            "raw_c0",
+            "raw_main_amp",
+            "raw_ess_lengthscale",
+            "raw_conc_lengthscale",
+        ]
+        if self.use_set:
+            self.register_parameter(
+                "raw_set_scale", torch.nn.Parameter(torch.zeros((), dtype=torch.double))
+            )
+            raw_names.append("raw_set_scale")
+        if self.use_pair:
+            self.register_parameter(
+                "raw_pair_scale", torch.nn.Parameter(torch.zeros((), dtype=torch.double))
+            )
+            raw_names.append("raw_pair_scale")
+        for raw_name in raw_names:
+            self.register_constraint(raw_name, Positive())
+
+        init_outputscale = torch.tensor(1.0, dtype=torch.double)
+        init_c0 = torch.tensor(0.35, dtype=torch.double)
+        init_main_amp = torch.full((n_add,), 0.35, dtype=torch.double)
+        init_ess_lengthscale = torch.full((n_ess,), 0.35, dtype=torch.double)
+        init_conc_lengthscale = torch.full((n_add,), 0.3, dtype=torch.double)
+        # Set/pair scales reuse AdditiveSetKernel's initial s_set / s_pair.
+        init_set_scale = torch.tensor(0.35, dtype=torch.double)
+        init_pair_scale = torch.tensor(0.25, dtype=torch.double)
+        sigma = torch.tensor(0.75, dtype=torch.double)
+
+        self.register_prior(
+            "outputscale_prior",
+            LogNormalPrior(loc=init_outputscale.log(), scale=sigma),
+            lambda m: m.outputscale,
+            lambda m, v: m._set_outputscale(v),
+        )
+        self.register_prior(
+            "c0_prior",
+            LogNormalPrior(loc=init_c0.log(), scale=sigma),
+            lambda m: m.c0,
+            lambda m, v: m._set_c0(v),
+        )
+        self.register_prior(
+            "main_amp_prior",
+            LogNormalPrior(
+                loc=init_main_amp.log(),
+                scale=torch.full_like(init_main_amp, 0.75),
+            ),
+            lambda m: m.main_amp,
+            lambda m, v: m._set_main_amp(v),
+        )
+        self.register_prior(
+            "ess_lengthscale_prior",
+            LogNormalPrior(
+                loc=init_ess_lengthscale.log(),
+                scale=torch.full_like(init_ess_lengthscale, 0.75),
+            ),
+            lambda m: m.ess_lengthscale,
+            lambda m, v: m._set_ess_lengthscale(v),
+        )
+        self.register_prior(
+            "conc_lengthscale_prior",
+            LogNormalPrior(
+                loc=init_conc_lengthscale.log(),
+                scale=torch.full_like(init_conc_lengthscale, 0.75),
+            ),
+            lambda m: m.conc_lengthscale,
+            lambda m, v: m._set_conc_lengthscale(v),
+        )
+
+        init_kwargs: dict[str, torch.Tensor] = dict(
+            raw_outputscale=self.raw_outputscale_constraint.inverse_transform(
+                init_outputscale
+            ),
+            raw_c0=self.raw_c0_constraint.inverse_transform(init_c0),
+            raw_main_amp=self.raw_main_amp_constraint.inverse_transform(init_main_amp),
+            raw_ess_lengthscale=self.raw_ess_lengthscale_constraint.inverse_transform(
+                init_ess_lengthscale
+            ),
+            raw_conc_lengthscale=self.raw_conc_lengthscale_constraint.inverse_transform(
+                init_conc_lengthscale
+            ),
+        )
+        if self.use_set:
+            self.register_prior(
+                "set_scale_prior",
+                LogNormalPrior(loc=init_set_scale.log(), scale=sigma),
+                lambda m: m.set_scale,
+                lambda m, v: m._set_set_scale(v),
+            )
+            init_kwargs["raw_set_scale"] = self.raw_set_scale_constraint.inverse_transform(
+                init_set_scale
+            )
+        if self.use_pair:
+            self.register_prior(
+                "pair_scale_prior",
+                LogNormalPrior(loc=init_pair_scale.log(), scale=sigma),
+                lambda m: m.pair_scale,
+                lambda m, v: m._set_pair_scale(v),
+            )
+            init_kwargs["raw_pair_scale"] = self.raw_pair_scale_constraint.inverse_transform(
+                init_pair_scale
+            )
+        self.initialize(**init_kwargs)
+
+    @property
+    def outputscale(self) -> torch.Tensor:
+        return self.raw_outputscale_constraint.transform(self.raw_outputscale)
+
+    def _set_outputscale(self, value: torch.Tensor) -> None:
+        value = value.to(self.raw_outputscale).clamp_min(1e-12)
+        self.initialize(
+            raw_outputscale=self.raw_outputscale_constraint.inverse_transform(value)
+        )
+
+    @property
+    def c0(self) -> torch.Tensor:
+        return self.raw_c0_constraint.transform(self.raw_c0)
+
+    def _set_c0(self, value: torch.Tensor) -> None:
+        value = value.to(self.raw_c0).clamp_min(1e-12)
+        self.initialize(raw_c0=self.raw_c0_constraint.inverse_transform(value))
+
+    @property
+    def main_amp(self) -> torch.Tensor:
+        return self.raw_main_amp_constraint.transform(self.raw_main_amp)
+
+    def _set_main_amp(self, value: torch.Tensor) -> None:
+        value = value.to(self.raw_main_amp).clamp_min(1e-12)
+        self.initialize(
+            raw_main_amp=self.raw_main_amp_constraint.inverse_transform(value)
+        )
+
+    @property
+    def ess_lengthscale(self) -> torch.Tensor:
+        return self.raw_ess_lengthscale_constraint.transform(self.raw_ess_lengthscale)
+
+    def _set_ess_lengthscale(self, value: torch.Tensor) -> None:
+        value = value.to(self.raw_ess_lengthscale).clamp_min(1e-12)
+        self.initialize(
+            raw_ess_lengthscale=self.raw_ess_lengthscale_constraint.inverse_transform(
+                value
+            )
+        )
+
+    @property
+    def conc_lengthscale(self) -> torch.Tensor:
+        return self.raw_conc_lengthscale_constraint.transform(self.raw_conc_lengthscale)
+
+    def _set_conc_lengthscale(self, value: torch.Tensor) -> None:
+        value = value.to(self.raw_conc_lengthscale).clamp_min(1e-12)
+        self.initialize(
+            raw_conc_lengthscale=self.raw_conc_lengthscale_constraint.inverse_transform(
+                value
+            )
+        )
+
+    @property
+    def set_scale(self) -> torch.Tensor:
+        return self.raw_set_scale_constraint.transform(self.raw_set_scale)
+
+    def _set_set_scale(self, value: torch.Tensor) -> None:
+        value = value.to(self.raw_set_scale).clamp_min(1e-12)
+        self.initialize(
+            raw_set_scale=self.raw_set_scale_constraint.inverse_transform(value)
+        )
+
+    @property
+    def pair_scale(self) -> torch.Tensor:
+        return self.raw_pair_scale_constraint.transform(self.raw_pair_scale)
+
+    def _set_pair_scale(self, value: torch.Tensor) -> None:
+        value = value.to(self.raw_pair_scale).clamp_min(1e-12)
+        self.initialize(
+            raw_pair_scale=self.raw_pair_scale_constraint.inverse_transform(value)
+        )
+
+    def forward(
+        self,
+        x1: torch.Tensor,
+        x2: torch.Tensor,
+        diag: bool = False,
+        last_dim_is_batch: bool = False,
+        **params: Any,
+    ) -> torch.Tensor:
+        if last_dim_is_batch:
+            raise NotImplementedError(
+                "PerAddAlphaKernel does not support last_dim_is_batch."
+            )
+        e1 = x1[..., self.ess_dims]
+        e2 = x2[..., self.ess_dims]
+        b1 = (x1[..., self.cat_dims] > 0.5).to(dtype=x1.dtype)
+        b2 = (x2[..., self.cat_dims] > 0.5).to(dtype=x2.dtype)
+        c1 = x1[..., self.conc_dims]
+        c2 = x2[..., self.conc_dims]
+
+        ess_diff = (e1.unsqueeze(-2) - e2.unsqueeze(-3)) / self.ess_lengthscale
+        k_ess = torch.exp(-0.5 * ess_diff.pow(2).sum(dim=-1))
+
+        shared = b1.unsqueeze(-2) * b2.unsqueeze(-3)
+        conc_diff = (c1.unsqueeze(-2) - c2.unsqueeze(-3)) / self.conc_lengthscale
+        k_conc_per_add = torch.exp(-0.5 * conc_diff.pow(2))
+        # m_i = b_i b'_i alpha_i k_conc_i; per-additive amplitude folds in.
+        main_components = shared * self.main_amp * k_conc_per_add
+        k_main = main_components.sum(dim=-1)
+
+        inner = self.c0 + k_main
+        if self.use_set:
+            intersection = shared.sum(dim=-1)
+            union = (
+                b1.sum(dim=-1).unsqueeze(-1)
+                + b2.sum(dim=-1).unsqueeze(-2)
+                - intersection
+            )
+            k_set = torch.where(
+                union > self.eps,
+                intersection / union.clamp_min(self.eps),
+                torch.ones_like(union),
+            )
+            inner = inner + self.set_scale * k_set
+        if self.use_pair:
+            k_pair = 0.5 * (k_main.pow(2) - main_components.pow(2).sum(dim=-1))
+            inner = inner + self.pair_scale * k_pair
+
+        cov = self.outputscale * k_ess * inner
+        if diag:
+            return torch.diagonal(cov, dim1=-2, dim2=-1)
+        return cov
+
+
 def load_training_data(args: argparse.Namespace) -> tuple[pd.DataFrame, FlatCodec]:
     path = Path(args.input)
     if not path.exists():
@@ -768,8 +1078,34 @@ def make_baseline_model(
     ).to(X)
 
 
+def make_per_add_alpha_model(
+    X: torch.Tensor,
+    Y: torch.Tensor,
+    codec: FlatCodec,
+    bounds: torch.Tensor,
+) -> SingleTaskGP:
+    covar_module = PerAddAlphaKernel(
+        ess_dims=list(range(codec.n_ess)),
+        cat_dims=codec.cat_dims,
+        conc_dims=codec.conc_dims,
+        additive_names=codec.adds,
+        use_set=False,
+        use_pair=False,
+    )
+    return SingleTaskGP(
+        train_X=X,
+        train_Y=Y,
+        covar_module=covar_module,
+        input_transform=Normalize(d=codec.d, bounds=bounds, indices=codec.cont_dims),
+        outcome_transform=Standardize(m=1),
+    ).to(X)
+
+
+# ``make_old_model`` (MixedSingleTaskGP / old mixed-Hamming prior) is retained
+# above for reference but is no longer part of the default comparison registry;
+# the first slot now holds the per-additive-amplitude kernel.
 MODEL_BUILDERS = [
-    ("old_mixed_hamming", make_old_model),
+    ("per_add_alpha", make_per_add_alpha_model),
     ("new_additive_set", make_new_model),
     ("baseline_kernel", make_baseline_model),
 ]
@@ -919,6 +1255,43 @@ def kernel_parameter_summary(model: SingleTaskGP) -> dict[str, Any]:
                 "baseline_conc_lengthscale": {n: float(v) for n, v in zip(names, conc_l)},
             }
         )
+    elif isinstance(covar, PerAddAlphaKernel):
+        outputscale = float(covar.outputscale.detach().cpu())
+        c0 = float(covar.c0.detach().cpu())
+        ess_l = covar.ess_lengthscale.detach().cpu().numpy()
+        conc_l = covar.conc_lengthscale.detach().cpu().numpy()
+        alpha = covar.main_amp.detach().cpu().numpy()
+        names = covar.additive_names or [f"add_{i}" for i in range(len(conc_l))]
+        eff_alpha = outputscale * alpha
+        out.update(
+            {
+                "per_add_alpha_outputscale": outputscale,
+                "per_add_alpha_c0": c0,
+                "per_add_alpha_effective_c0": outputscale * c0,
+                "per_add_alpha_ess_lengthscale": [float(v) for v in ess_l.reshape(-1)],
+                "per_add_alpha_conc_lengthscale": {
+                    n: float(v) for n, v in zip(names, conc_l)
+                },
+                "per_add_alpha_alpha": {n: float(v) for n, v in zip(names, alpha)},
+                "per_add_alpha_effective_alpha": {
+                    n: float(v) for n, v in zip(names, eff_alpha)
+                },
+                "per_add_alpha_alpha_min": float(np.min(alpha)),
+                "per_add_alpha_alpha_median": float(np.median(alpha)),
+                "per_add_alpha_alpha_max": float(np.max(alpha)),
+                "per_add_alpha_effective_alpha_min": float(np.min(eff_alpha)),
+                "per_add_alpha_effective_alpha_median": float(np.median(eff_alpha)),
+                "per_add_alpha_effective_alpha_max": float(np.max(eff_alpha)),
+            }
+        )
+        if covar.use_set:
+            s_set = float(covar.set_scale.detach().cpu())
+            out["per_add_alpha_set_scale"] = s_set
+            out["per_add_alpha_effective_set_scale"] = outputscale * s_set
+        if covar.use_pair:
+            s_pair = float(covar.pair_scale.detach().cpu())
+            out["per_add_alpha_pair_scale"] = s_pair
+            out["per_add_alpha_effective_pair_scale"] = outputscale * s_pair
     else:
         lengthscales: list[float] = []
         outputscales: list[float] = []
@@ -1294,7 +1667,7 @@ def run(args: argparse.Namespace) -> None:
         if args.acq_stability_diagnostics:
             assert pool is not None
             diagnostics.update(
-                acq_stability_diagnostics(
+                acq_stability_diagnos   tics(
                     model=model,
                     X_baseline=X,
                     pool=pool,

@@ -1,0 +1,63 @@
+{
+  "args": {
+    "bo_profile": "fast_candidates",
+    "input": "logs/Jun_11_full_log/data_corrected.xlsx",
+    "sheet": "Corrected Data",
+    "target": "intensity",
+    "hrp": 0.0001,
+    "hrp_atol": 1e-12,
+    "filter_ctrl": true,
+    "device": "cpu",
+    "seed": 42,
+    "output_dir": "C:\\PyCharm\\Blueness\\logs\\add_bo_compare",
+    "models": [
+      "per_add_alpha"
+    ],
+    "k_max": 4,
+    "fit_maxiter": 1,
+    "training_fit_diagnostics": false,
+    "matrix_diagnostics": false,
+    "loo_diagnostics": false,
+    "kernel_parameter_summary": false,
+    "acq_stability_diagnostics": false,
+    "stability_mc_samples": 64,
+    "stability_repeats": 5,
+    "acq_pool_size": 512,
+    "skip_candidates": true,
+    "q": 32,
+    "num_top_subspaces": 20,
+    "sobol_max_samples": 128,
+    "screen_min_samples": 1,
+    "screen_mc_samples": 16,
+    "num_restarts": 5,
+    "raw_samples": 128,
+    "acq_maxiter": 50,
+    "refine_mc_samples": 32,
+    "eval_batch_size": 256
+  },
+  "data": {
+    "rows_after_filters": 461,
+    "target_mean": 85428.2827853377,
+    "target_std": 26014.563565290526,
+    "target_min": -52.12563452,
+    "target_max": 151518.1277267,
+    "active_count_dist": {
+      "1": 198,
+      "2": 231,
+      "0": 32
+    },
+    "rows_any_additive_gt_encoding_hi": 0,
+    "additive_gt_encoding_hi_counts": {},
+    "raw_rows": 461,
+    "unique_encoded_rows": 446,
+    "duplicates_merged": 15,
+    "encoded_dim": 46,
+    "n_additives": 22
+  },
+  "models": {
+    "per_add_alpha": {
+      "fit_seconds": 0.4176454544067383,
+      "mll": -0.26193585224035437
+    }
+  }
+}

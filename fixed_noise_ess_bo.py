@@ -28,7 +28,7 @@ torch.set_default_dtype(torch.double)
 ESSENTIALS = ["TMB", "H2O2"]
 PHYSICAL_BOUNDS = {"TMB": (0.005, 1.0), "H2O2": (0.005, 1.0)}
 LOGS_DIR = Path(__file__).with_name("logs")
-DEFAULT_LOG_DIR = LOGS_DIR / "Jun_04_full_log"
+DEFAULT_LOG_DIR = LOGS_DIR / "Jun_15_full_log"
 
 # Experimental rounds in chronological order. BO is cumulative: a run is trained
 # on every round up to and including run_type (pooled at the replicate level),
@@ -398,11 +398,11 @@ def parse_args() -> argparse.Namespace:
         description="Compare replicate-level inferred-noise GP with condition-mean fixed-noise GP."
     )
     parser.add_argument("--input_dir", default=str(DEFAULT_LOG_DIR))
-    parser.add_argument("--input_prefix", default="6_3")
+    parser.add_argument("--input_prefix", default="6_15")
     parser.add_argument(
         "--run_type",
         choices=["LHS", "BO1", "BO2"],
-        default="BO2",
+        default="LHS",
         help=(
             "Latest round of data on hand. The model is trained on every round up to "
             "and including this one (cumulative pooling at the replicate level); "

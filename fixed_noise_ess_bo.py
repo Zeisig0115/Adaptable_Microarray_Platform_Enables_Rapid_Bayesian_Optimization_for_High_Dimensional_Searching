@@ -402,7 +402,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--run_type",
         choices=["LHS", "BO1", "BO2"],
-        default="LHS",
+        default="BO1",
         help=(
             "Latest round of data on hand. The model is trained on every round up to "
             "and including this one (cumulative pooling at the replicate level); "
@@ -474,7 +474,7 @@ def main() -> None:
         f"candidates target round {next_round(args.run_type)}.",
         flush=True,
     )
-    cand_path = out_dir / f"{next_round(args.run_type)}_candidates_all.csv"
+    cand_path = out_dir / f"{next_round(args.run_type)}_candidates_all_test.csv"
 
     rows: list[dict[str, Any]] = []
     cand_frames: list[pd.DataFrame] = []

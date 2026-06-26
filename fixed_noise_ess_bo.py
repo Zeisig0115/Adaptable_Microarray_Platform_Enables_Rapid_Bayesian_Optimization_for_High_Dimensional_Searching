@@ -410,7 +410,7 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument("--target", default="AUC")
-    parser.add_argument("--hrp", nargs="+", default=["1", "0.01", "0.0001"])
+    parser.add_argument("--hrp", nargs="+", default=["0.001", "0.01", "0.1"])
     parser.add_argument(
         "--models",
         nargs="+",

@@ -28,7 +28,7 @@ torch.set_default_dtype(torch.double)
 ESSENTIALS = ["TMB", "H2O2"]
 PHYSICAL_BOUNDS = {"TMB": (0.005, 1.0), "H2O2": (0.005, 1.0)}
 LOGS_DIR = Path(__file__).with_name("logs")
-DEFAULT_LOG_DIR = LOGS_DIR / "Jun_15_full_log"
+DEFAULT_LOG_DIR = LOGS_DIR / "Jun_22_full_log"
 
 # Experimental rounds in chronological order. BO is cumulative: a run is trained
 # on every round up to and including run_type (pooled at the replicate level),
@@ -398,11 +398,11 @@ def parse_args() -> argparse.Namespace:
         description="Compare replicate-level inferred-noise GP with condition-mean fixed-noise GP."
     )
     parser.add_argument("--input_dir", default=str(DEFAULT_LOG_DIR))
-    parser.add_argument("--input_prefix", default="6_15")
+    parser.add_argument("--input_prefix", default="6_22")
     parser.add_argument(
         "--run_type",
         choices=["LHS", "BO1", "BO2"],
-        default="BO1",
+        default="LHS",
         help=(
             "Latest round of data on hand. The model is trained on every round up to "
             "and including this one (cumulative pooling at the replicate level); "
@@ -419,7 +419,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--out_dir", default=str(DEFAULT_LOG_DIR))
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--device", choices=["cpu", "cuda"], default="cpu")
+    parser.add_argument("--device", choices=["cpu", "cuda"], default="cuda")
     parser.add_argument("--q", type=int, default=32)
     parser.add_argument("--num_restarts", type=int, default=20)
     parser.add_argument("--raw_samples", type=int, default=512)
@@ -474,7 +474,7 @@ def main() -> None:
         f"candidates target round {next_round(args.run_type)}.",
         flush=True,
     )
-    cand_path = out_dir / f"{next_round(args.run_type)}_candidates_all_test.csv"
+    cand_path = out_dir / f"{next_round(args.run_type)}_candidates_all.csv"
 
     rows: list[dict[str, Any]] = []
     cand_frames: list[pd.DataFrame] = []

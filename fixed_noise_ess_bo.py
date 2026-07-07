@@ -28,14 +28,14 @@ torch.set_default_dtype(torch.double)
 ESSENTIALS = ["TMB", "H2O2"]
 PHYSICAL_BOUNDS = {"TMB": (0.005, 1.0), "H2O2": (0.005, 1.0)}
 LOGS_DIR = Path(__file__).with_name("logs")
-DEFAULT_LOG_DIR = LOGS_DIR / "Jun_22_full_log"
+DEFAULT_LOG_DIR = LOGS_DIR / "Jul_1_full_log"
 
 # Experimental rounds in chronological order. BO is cumulative: a run is trained
 # on every round up to and including run_type (pooled at the replicate level),
 # and the candidate file is named by the round that FOLLOWS run_type. Diagnostics
 # keep run_type because they describe the model fitted to the pooled data through
 # that round. Example: run_type=BO1 pools {LHS, BO1} and targets candidates for BO2.
-ROUND_SEQUENCE = ("LHS", "BO1", "BO2", "BO3")
+ROUND_SEQUENCE = ("LHS", "BO1", "BO2", "BO3", "BO4")
 
 
 def cumulative_rounds(run_type: str) -> tuple[str, ...]:
@@ -398,11 +398,11 @@ def parse_args() -> argparse.Namespace:
         description="Compare replicate-level inferred-noise GP with condition-mean fixed-noise GP."
     )
     parser.add_argument("--input_dir", default=str(DEFAULT_LOG_DIR))
-    parser.add_argument("--input_prefix", default="6_22")
+    parser.add_argument("--input_prefix", default="7_1")
     parser.add_argument(
         "--run_type",
-        choices=["LHS", "BO1", "BO2"],
-        default="LHS",
+        choices=["LHS", "BO1", "BO2", "BO3"],
+        default="BO3",
         help=(
             "Latest round of data on hand. The model is trained on every round up to "
             "and including this one (cumulative pooling at the replicate level); "

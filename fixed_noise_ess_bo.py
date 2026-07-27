@@ -20,6 +20,7 @@ from botorch.optim import optimize_acqf
 from botorch.sampling.normal import SobolQMCNormalSampler
 from gpytorch.mlls import ExactMarginalLogLikelihood
 
+from data_loader_objectives import ADDITIVE_COLS, OBJECTIVE_COLS
 from fit_model import matern_with_hvarfner_prior
 
 
@@ -27,6 +28,7 @@ torch.set_default_dtype(torch.double)
 
 ESSENTIALS = ["TMB", "H2O2"]
 PHYSICAL_BOUNDS = {"TMB": (0.005, 1.0), "H2O2": (0.005, 1.0)}
+UNIFIED_OBJECTIVE_KEYS = {str(column).strip().lower() for column in OBJECTIVE_COLS}
 LOGS_DIR = Path(__file__).with_name("logs")
 DEFAULT_LOG_DIR = LOGS_DIR / "Jul_1_full_log"
 
@@ -46,6 +48,278 @@ def cumulative_rounds(run_type: str) -> tuple[str, ...]:
 def next_round(run_type: str) -> str:
     """Experimental round the generated candidates are meant to be run in."""
     return ROUND_SEQUENCE[ROUND_SEQUENCE.index(run_type) + 1]
+
+
+def read_objective_table(path: Path, sheet_name: str = "Corrected Data") -> pd.DataFrame:
+    if not path.exists():
+        raise FileNotFoundError(f"Input not found: {path.resolve()}")
+    if path.suffix.lower() in {".xlsx", ".xls"}:
+        return pd.read_excel(path, sheet_name=sheet_name)
+    if path.suffix.lower() == ".csv":
+        return pd.read_csv(path)
+    raise ValueError(f"Unsupported input suffix: {path.suffix}")
+
+
+def resolve_target_column(df: pd.DataFrame, requested: str) -> str:
+    requested_key = str(requested).strip().lower()
+    if requested_key not in UNIFIED_OBJECTIVE_KEYS:
+        raise ValueError(
+            f"Target {requested!r} is not a unified objective. "
+            f"Choose one of {OBJECTIVE_COLS}."
+        )
+    matches = [c for c in df.columns if str(c).strip().lower() == requested_key]
+    if len(matches) == 1:
+        return str(matches[0])
+    available = [
+        c for c in df.columns
+        if str(c).strip().lower() in UNIFIED_OBJECTIVE_KEYS
+    ]
+    raise KeyError(
+        f"Target column {requested!r} was not found uniquely. Available objectives: {available}"
+    )
+
+
+def infer_round_from_batch(batch: str) -> str | None:
+    """Infer a canonical round from loader Batch labels such as BO2 or 7_1_BO2."""
+    text = Path(str(batch).strip()).stem.upper()
+    for round_name in ROUND_SEQUENCE:
+        if text == round_name or text.endswith(f"_{round_name}"):
+            return round_name
+    return None
+
+
+def validate_explicit_round_pool(
+    df: pd.DataFrame,
+    *,
+    rounds_to_pool: tuple[str, ...],
+    source: str,
+) -> dict[str, str]:
+    """Require an explicit unified input to cover exactly the cumulative rounds."""
+    if "Batch" not in df.columns:
+        raise KeyError(
+            f"{source}: --input needs Batch labels so cumulative rounds can be audited. "
+            "Use data_loader_objectives batches such as LHS/BO1/BO2/BO3, or pass "
+            "--input_is_already_pooled as an explicit assertion."
+        )
+    labels = sorted(df["Batch"].astype(str).unique())
+    inferred = {label: infer_round_from_batch(label) for label in labels}
+    unknown = [label for label, round_name in inferred.items() if round_name is None]
+    if unknown:
+        raise ValueError(
+            f"{source}: cannot infer experimental rounds from Batch labels {unknown}. "
+            "Use labels ending in LHS/BO1/BO2/BO3, or pass "
+            "--input_is_already_pooled as an explicit assertion."
+        )
+    observed = {round_name for round_name in inferred.values() if round_name is not None}
+    expected = set(rounds_to_pool)
+    if observed != expected:
+        missing = sorted(expected - observed, key=ROUND_SEQUENCE.index)
+        extra = sorted(observed - expected, key=ROUND_SEQUENCE.index)
+        raise ValueError(
+            f"{source}: --run_type requires cumulative rounds {list(rounds_to_pool)}, "
+            f"but Batch implies observed rounds={sorted(observed, key=ROUND_SEQUENCE.index)}, "
+            f"missing={missing}, extra={extra}. Do not label a single-round table as a "
+            "cumulative BO run; pass --input_is_already_pooled only when the supplied "
+            "table has already been pooled intentionally."
+        )
+    if "HRP" not in df.columns:
+        raise KeyError(f"{source}: HRP is required to audit round coverage per model.")
+    incomplete_hrp: list[dict[str, Any]] = []
+    for hrp, group in df.groupby("HRP", sort=True):
+        group_labels = set(group["Batch"].astype(str))
+        group_rounds = {
+            inferred[label] for label in group_labels if inferred[label] is not None
+        }
+        if group_rounds != expected:
+            incomplete_hrp.append(
+                {
+                    "HRP": float(hrp),
+                    "observed": sorted(group_rounds, key=ROUND_SEQUENCE.index),
+                    "missing": sorted(expected - group_rounds, key=ROUND_SEQUENCE.index),
+                    "extra": sorted(group_rounds - expected, key=ROUND_SEQUENCE.index),
+                }
+            )
+    if incomplete_hrp:
+        raise ValueError(
+            f"{source}: cumulative round coverage must hold separately for every HRP "
+            f"model; violations={incomplete_hrp}"
+        )
+    return {label: str(round_name) for label, round_name in inferred.items()}
+
+
+def _finite_numeric(
+    df: pd.DataFrame,
+    columns: list[str],
+    *,
+    source: str,
+) -> pd.DataFrame:
+    values = df[columns].apply(pd.to_numeric, errors="coerce")
+    invalid = ~np.isfinite(values.to_numpy(dtype=float))
+    if invalid.any():
+        bad_rows = np.flatnonzero(invalid.any(axis=1))[:5].tolist()
+        raise ValueError(
+            f"{source}: non-numeric or non-finite values in {columns}; "
+            f"first zero-based row indices={bad_rows}"
+        )
+    return values.astype(float)
+
+
+def _boolean_series(values: pd.Series, *, label: str, source: str) -> pd.Series:
+    if pd.api.types.is_bool_dtype(values):
+        return values.astype(bool)
+    normalized = values.astype(str).str.strip().str.lower()
+    mapped = normalized.map({"true": True, "false": False, "1": True, "0": False})
+    if mapped.isna().any():
+        bad = values.loc[mapped.isna()].head(5).tolist()
+        raise ValueError(f"{source}: invalid {label} values; first examples={bad}")
+    return mapped.astype(bool)
+
+
+def _bad_row_examples(df: pd.DataFrame, mask: pd.Series) -> list[dict[str, Any]]:
+    trace = [
+        c for c in ["Batch", "source_file", "source_sheet", "source_row"]
+        if c in df.columns
+    ]
+    if not trace:
+        return [{"row_index": int(i)} for i in df.index[mask][:5]]
+    return df.loc[mask, trace].head(5).to_dict("records")
+
+
+def validate_ess_training_table(
+    df: pd.DataFrame,
+    *,
+    target: str,
+    source: str,
+) -> tuple[pd.DataFrame, str]:
+    """Validate that every row is safe for the essentials-only fixed-noise model."""
+    if df.empty:
+        raise ValueError(f"{source}: input table has no rows.")
+    normalized_columns = pd.Index([str(c).strip().lower() for c in df.columns])
+    duplicate_columns = normalized_columns[normalized_columns.duplicated()].unique().tolist()
+    if duplicate_columns:
+        raise ValueError(
+            f"{source}: duplicate columns after case normalization: {duplicate_columns}"
+        )
+    required = ["HRP", *ESSENTIALS]
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        raise KeyError(f"{source}: missing required columns {missing}")
+
+    target_col = resolve_target_column(df, target)
+    if target_col in required or target_col in ADDITIVE_COLS or target_col == "CTRL":
+        raise ValueError(f"Target {target_col!r} is a recipe feature or metadata column.")
+    out = df.copy()
+    numeric = _finite_numeric(out, required + [target_col], source=source)
+    out[required + [target_col]] = numeric
+    if (out["HRP"] <= 0.0).any():
+        raise ValueError(f"{source}: HRP must be strictly positive.")
+    for essential in ESSENTIALS:
+        lo, hi = PHYSICAL_BOUNDS[essential]
+        outside = ~out[essential].between(lo, hi, inclusive="both")
+        if outside.any():
+            examples = out.loc[outside, essential].head(5).tolist()
+            raise ValueError(
+                f"{source}: {essential} must lie in [{lo}, {hi}]; "
+                f"first out-of-bounds values={examples}"
+            )
+
+    present_additives = [c for c in ADDITIVE_COLS if c in out.columns]
+    unified_markers = {"composition_type", "is_ess_only", "n_active", "source_layout"}
+    present_markers = unified_markers.intersection(out.columns)
+    if present_additives and len(present_additives) != len(ADDITIVE_COLS):
+        missing_additives = [c for c in ADDITIVE_COLS if c not in out.columns]
+        raise KeyError(f"{source}: incomplete additive schema; missing={missing_additives}")
+    if present_markers and not present_additives:
+        raise KeyError(f"{source}: unified trace columns are present but additive columns are missing.")
+    if present_additives and present_markers != unified_markers:
+        missing_markers = sorted(unified_markers - present_markers)
+        raise KeyError(f"{source}: incomplete unified trace schema; missing={missing_markers}")
+    if present_additives:
+        additive_values = _finite_numeric(out, ADDITIVE_COLS, source=source)
+        if (additive_values < 0.0).any().any():
+            raise ValueError(f"{source}: additive concentrations must be non-negative.")
+        out[ADDITIVE_COLS] = additive_values
+        active_rows = (additive_values > 0.0).any(axis=1)
+        if active_rows.any():
+            raise ValueError(
+                f"{source}: fixed_noise_ess_bo accepts only ESS rows, but found "
+                f"{int(active_rows.sum())} rows with active additives; "
+                f"examples={_bad_row_examples(out, active_rows)}"
+            )
+
+    if "n_active" in out.columns:
+        n_active = pd.to_numeric(out["n_active"], errors="coerce")
+        invalid = ~np.isfinite(n_active.to_numpy(dtype=float)) | (n_active != 0)
+        if invalid.any():
+            mask = pd.Series(invalid, index=out.index)
+            raise ValueError(
+                f"{source}: n_active must be zero for every row; "
+                f"examples={_bad_row_examples(out, mask)}"
+            )
+        out["n_active"] = n_active.astype(int)
+    if "is_ess_only" in out.columns:
+        is_ess = _boolean_series(out["is_ess_only"], label="is_ess_only", source=source)
+        if (~is_ess).any():
+            raise ValueError(
+                f"{source}: is_ess_only must be true for every row; "
+                f"examples={_bad_row_examples(out, ~is_ess)}"
+            )
+        out["is_ess_only"] = is_ess
+    if "composition_type" in out.columns:
+        composition = out["composition_type"].astype(str).str.strip().str.upper()
+        invalid = composition != "ESS"
+        if invalid.any():
+            raise ValueError(
+                f"{source}: composition_type must be ESS for every row; "
+                f"examples={_bad_row_examples(out, invalid)}"
+            )
+    if "Batch" in out.columns:
+        batch_text = out["Batch"].astype("string").str.strip()
+        if batch_text.isna().any() or batch_text.eq("").any():
+            raise ValueError(f"{source}: Batch labels must be non-empty when present.")
+        out["Batch"] = batch_text.astype(str)
+    if "source_layout" in out.columns:
+        layout = out["source_layout"].astype(str).str.strip().str.lower()
+        unknown_layout = ~layout.isin({"essentials", "additive"})
+        if unknown_layout.any():
+            raise ValueError(
+                f"{source}: invalid source_layout values; "
+                f"examples={out.loc[unknown_layout, 'source_layout'].head(5).tolist()}"
+            )
+        out["source_layout"] = layout
+
+    if "CTRL" in out.columns:
+        ctrl = _finite_numeric(out, ["CTRL"], source=source)["CTRL"]
+        if (ctrl < 0.0).any():
+            raise ValueError(f"{source}: CTRL markers must be non-negative.")
+        if (ctrl > 0.0).any():
+            raise ValueError(f"{source}: nonzero CTRL rows are not valid ESS training rows.")
+        out["CTRL"] = ctrl
+
+    provenance = ["source_file", "source_sheet", "source_row"]
+    present_provenance = [c for c in provenance if c in out.columns]
+    if present_provenance and len(present_provenance) != len(provenance):
+        raise KeyError(f"{source}: incomplete provenance columns {present_provenance}")
+    if all(c in out.columns for c in provenance):
+        if out[provenance].isna().any().any():
+            raise ValueError(f"{source}: provenance columns must not contain missing values.")
+        duplicated = out.duplicated(provenance, keep=False)
+        if duplicated.any():
+            raise ValueError(
+                f"{source}: duplicate provenance rows detected; "
+                f"examples={_bad_row_examples(out, duplicated)}"
+            )
+    if "n_frames" in out.columns:
+        n_frames = pd.to_numeric(out["n_frames"], errors="coerce")
+        if (
+            (~np.isfinite(n_frames.to_numpy(dtype=float))).any()
+            or (n_frames < 2).any()
+            or (n_frames != np.floor(n_frames)).any()
+            or n_frames.nunique() != 1
+        ):
+            raise ValueError(f"{source}: n_frames must be one finite, common value >= 2.")
+        out["n_frames"] = n_frames.astype(int)
+    return out, target_col
 
 
 def set_seeds(seed: int) -> None:
@@ -79,6 +353,13 @@ def prepare_condition_table(df: pd.DataFrame, target: str, shrink_alpha: float) 
         .sort_values(ESSENTIALS)
         .reset_index(drop=True)
     )
+    insufficient = grouped["count"] < 2
+    if insufficient.any():
+        examples = grouped.loc[insufficient, ESSENTIALS + ["count"]].head(5).to_dict("records")
+        raise ValueError(
+            "Fixed-noise SEM requires at least two replicates per TMB/H2O2 "
+            f"condition; examples={examples}"
+        )
     grouped["var"] = grouped["sd"].pow(2)
     grouped["sem_var_raw"] = grouped["var"] / grouped["count"]
 
@@ -397,6 +678,29 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Compare replicate-level inferred-noise GP with condition-mean fixed-noise GP."
     )
+    parser.add_argument(
+        "--input",
+        default=None,
+        help=(
+            "Optional unified replicate-level .xlsx/.xls/.csv from "
+            "data_loader_objectives. When supplied, this exact table replaces "
+            "legacy cumulative round-file discovery."
+        ),
+    )
+    parser.add_argument(
+        "--input_sheet",
+        default="Corrected Data",
+        help="Worksheet used by --input for Excel files.",
+    )
+    parser.add_argument(
+        "--input_is_already_pooled",
+        action="store_true",
+        help=(
+            "Explicitly assert that --input is already pooled for --run_type when "
+            "its Batch labels cannot prove cumulative-round coverage. This bypasses "
+            "only the round-label check; active-additive rows are still rejected."
+        ),
+    )
     parser.add_argument("--input_dir", default=str(DEFAULT_LOG_DIR))
     parser.add_argument("--input_prefix", default="7_1")
     parser.add_argument(
@@ -410,7 +714,12 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument("--target", default="AUC")
-    parser.add_argument("--hrp", nargs="+", default=["0.001", "0.01", "0.1"])
+    parser.add_argument(
+        "--hrp",
+        nargs="+",
+        default=None,
+        help="Optional HRP level(s); by default, run every HRP level present in the input.",
+    )
     parser.add_argument(
         "--models",
         nargs="+",
@@ -437,6 +746,10 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    if not 0.0 <= args.shrink_alpha <= 1.0:
+        raise ValueError("--shrink_alpha must lie in [0, 1].")
+    if args.input_is_already_pooled and not args.input:
+        raise ValueError("--input_is_already_pooled is valid only together with --input.")
     set_seeds(args.seed)
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -450,27 +763,81 @@ def main() -> None:
     warnings.filterwarnings("default")
 
     rounds_to_pool = cumulative_rounds(args.run_type)
-    input_dir = Path(args.input_dir)
-    frames: list[pd.DataFrame] = []
-    for r in rounds_to_pool:
-        round_path = input_dir / f"{args.input_prefix}_{r}_HRP_all_res.xlsx"
-        if not round_path.exists():
-            raise FileNotFoundError(
-                f"Cumulative training needs round '{r}' but {round_path} is missing. "
-                f"Run: data_loader_objectives --run_type {r} --keep_all_hrp"
-            )
-        df_r = pd.read_excel(round_path)
-        if "HRP" not in df_r.columns:
+    if args.input:
+        input_path = Path(args.input)
+        df_all = read_objective_table(input_path, sheet_name=args.input_sheet)
+        input_label = f"explicit unified table {input_path.resolve()}"
+    else:
+        input_dir = Path(args.input_dir)
+        frames: list[pd.DataFrame] = []
+        for r in rounds_to_pool:
+            round_path = input_dir / f"{args.input_prefix}_{r}_HRP_all_res.xlsx"
+            if not round_path.exists():
+                raise FileNotFoundError(
+                    f"Cumulative training needs round '{r}' but {round_path} is missing. "
+                    f"Run: data_loader_objectives --run_type {r} --keep_all_hrp"
+                )
+            frames.append(pd.read_excel(round_path))
+        df_all = pd.concat(frames, ignore_index=True)
+        input_label = f"legacy cumulative rounds {list(rounds_to_pool)}"
+
+    df_all, args.target = validate_ess_training_table(
+        df_all,
+        target=args.target,
+        source=input_label,
+    )
+
+    available_hrp = np.sort(df_all["HRP"].unique())
+    requested_hrp = available_hrp.tolist() if args.hrp is None else args.hrp
+    if not requested_hrp:
+        raise ValueError("No HRP levels were requested or found in the input.")
+    hrp_jobs: list[tuple[float, pd.Series]] = []
+    selected_hrp: list[float] = []
+    for requested in requested_hrp:
+        requested_value = float(requested)
+        if not np.isfinite(requested_value) or requested_value <= 0.0:
+            raise ValueError(f"Requested HRP must be finite and positive; got {requested!r}.")
+        hrp_mask = np.isclose(
+            df_all["HRP"].astype(float), requested_value, rtol=0.0, atol=1e-12
+        )
+        matched_levels = np.sort(df_all.loc[hrp_mask, "HRP"].unique())
+        if len(matched_levels) != 1:
             raise ValueError(
-                f"{round_path} has no 'HRP' column; expected the combined "
-                f"{args.input_prefix}_{r}_HRP_all_res.xlsx (run data_loader_objectives "
-                f"with --keep_all_hrp)."
+                f"Requested HRP={requested!r} must match exactly one actual level; "
+                f"matched={matched_levels.tolist()}, available={available_hrp.tolist()}"
             )
-        frames.append(df_r)
-    df_all = pd.concat(frames, ignore_index=True)
+        actual_hrp = float(matched_levels[0])
+        if actual_hrp in selected_hrp:
+            raise ValueError(
+                f"Requested HRP values contain duplicate matches to actual level {actual_hrp}."
+            )
+        selected_hrp.append(actual_hrp)
+        hrp_jobs.append((actual_hrp, hrp_mask))
+    selected_df = df_all.loc[df_all["HRP"].isin(selected_hrp)].copy()
+
+    round_map: dict[str, str] = {}
+    if args.input and not args.input_is_already_pooled:
+        round_map = validate_explicit_round_pool(
+            selected_df,
+            rounds_to_pool=rounds_to_pool,
+            source=input_label,
+        )
+    elif args.input:
+        print(
+            "[Data guard] --input_is_already_pooled asserted: Batch labels are not "
+            "being used to verify cumulative-round coverage.",
+            flush=True,
+        )
+    batch_counts = (
+        selected_df["Batch"].astype(str).value_counts().sort_index().to_dict()
+        if "Batch" in selected_df.columns else {}
+    )
     print(
-        f"Pooled rounds {list(rounds_to_pool)} -> {len(df_all)} replicate rows, "
-        f"{df_all.groupby(ESSENTIALS + ['HRP']).ngroups} conditions; "
+        f"Loaded {input_label} -> {len(df_all)} ESS replicate rows, "
+        f"selected {len(selected_df)} rows and "
+        f"{selected_df.groupby(ESSENTIALS + ['HRP']).ngroups} conditions for "
+        f"actual HRP levels={selected_hrp}; "
+        f"Batch counts={batch_counts}; inferred rounds={round_map}; "
         f"candidates target round {next_round(args.run_type)}.",
         flush=True,
     )
@@ -478,17 +845,14 @@ def main() -> None:
 
     rows: list[dict[str, Any]] = []
     cand_frames: list[pd.DataFrame] = []
-    for hrp in args.hrp:
-        df_hrp = df_all[np.isclose(df_all["HRP"].astype(float), float(hrp))].copy()
-        if df_hrp.empty:
-            print(f"Warning: no rows for HRP={hrp} in pooled rounds {list(rounds_to_pool)}; skipping.", flush=True)
-            continue
-        hrp_rows, hrp_cands = run_for_hrp(args, hrp, df_hrp, out_dir, diag_dir, cand_path)
+    for actual_hrp, hrp_mask in hrp_jobs:
+        df_hrp = df_all.loc[hrp_mask].copy()
+        hrp_rows, hrp_cands = run_for_hrp(
+            args, str(actual_hrp), df_hrp, out_dir, diag_dir, cand_path
+        )
         rows.extend(hrp_rows)
         cand_frames.extend(hrp_cands)
 
-    if not cand_frames:
-        raise ValueError(f"No HRP levels in {args.hrp} matched pooled rounds {list(rounds_to_pool)}.")
     combined = pd.concat(cand_frames, ignore_index=True)
     combined.to_csv(cand_path, index=False)
     print(f"\nSaved combined candidates ({len(combined)} rows) -> {cand_path.resolve()}", flush=True)

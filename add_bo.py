@@ -34,20 +34,32 @@ from gpytorch.kernels import Kernel
 from gpytorch.mlls import ExactMarginalLogLikelihood
 from gpytorch.priors import LogNormalPrior
 
+from data_loader_objectives import (
+    ADDITIVE_COLS as LOADER_ADDITIVE_COLS,
+    OBJECTIVE_COLS as LOADER_OBJECTIVE_COLS,
+)
+
 torch.set_default_dtype(torch.double)
 
-FEATURE_WHITELIST = [
-    "tmb", "h2o2", "cmc", "peg20k", "dmso", "pl127", "bsa",
-    "pva", "tw80", "glycerol", "tw20", "imidazole",
-    "tx100", "edta", "mgso4", "sucrose", "cacl2",
-    "znso4", "paa", "mncl2", "peg200k", "feso4",
-    "peg6k", "peg400",
-]
-
 ESSENTIALS = ["tmb", "h2o2"]
+CODEC_ADDITIVE_ORDER = [
+    "CMC", "PEG20K", "DMSO", "PL127", "BSA", "PVA", "TW80", "Glycerol",
+    "TW20", "Imidazole", "TX100", "EDTA", "MgCl2", "Sucrose", "CaCl2",
+    "ZnSO4", "PAA", "MnSO4", "PEG200K", "FeSO4", "PEG6000", "PEG400",
+]
+if (
+    len(CODEC_ADDITIVE_ORDER) != len(LOADER_ADDITIVE_COLS)
+    or set(CODEC_ADDITIVE_ORDER) != set(LOADER_ADDITIVE_COLS)
+):
+    raise RuntimeError(
+        "add_bo codec additive names disagree with data_loader_objectives.ADDITIVE_COLS."
+    )
+ADDITIVES = [name.lower() for name in CODEC_ADDITIVE_ORDER]
+FEATURE_WHITELIST = ESSENTIALS + ADDITIVES
+UNIFIED_OBJECTIVES = {name.strip().lower() for name in LOADER_OBJECTIVE_COLS}
 EPS = 1e-7
 CONC_LO = 0.001
-CONC_HI = 2.0
+CONC_HI = 1.0
 LOG_LO = math.log10(CONC_LO)
 LOG_HI = math.log10(CONC_HI)
 CONC_DEFAULT = LOG_LO
@@ -687,7 +699,31 @@ class PerAddAlphaKernel(Kernel):
         return cov
 
 
+def _numeric_series(df: pd.DataFrame, column: str, *, path: Path) -> pd.Series:
+    values = pd.to_numeric(df[column], errors="coerce")
+    invalid = ~np.isfinite(values.to_numpy(dtype=float))
+    if invalid.any():
+        rows = np.flatnonzero(invalid)[:5].tolist()
+        raise ValueError(
+            f"{path.name}: column {column!r} contains non-numeric or non-finite "
+            f"values; first zero-based row indices={rows}"
+        )
+    return values.astype(float)
+
+
+def _boolean_series(values: pd.Series, *, label: str, path: Path) -> pd.Series:
+    if pd.api.types.is_bool_dtype(values):
+        return values.astype(bool)
+    normalized = values.astype(str).str.strip().str.lower()
+    mapped = normalized.map({"true": True, "false": False, "1": True, "0": False})
+    if mapped.isna().any():
+        examples = values.loc[mapped.isna()].head(5).tolist()
+        raise ValueError(f"{path.name}: invalid {label} values; examples={examples}")
+    return mapped.astype(bool)
+
+
 def load_training_data(args: argparse.Namespace) -> tuple[pd.DataFrame, FlatCodec]:
+    """Load one HRP-specific unified table and enforce the 22-additive contract."""
     path = Path(args.input)
     if not path.exists():
         raise FileNotFoundError(f"Input not found: {path.resolve()}")
@@ -697,23 +733,241 @@ def load_training_data(args: argparse.Namespace) -> tuple[pd.DataFrame, FlatCode
         df = pd.read_csv(path)
     else:
         raise ValueError(f"Unsupported input suffix: {path.suffix}")
-    df.columns = df.columns.str.lower()
+    if df.empty:
+        raise ValueError(f"{path.name}: input table has no rows.")
 
-    if args.hrp is not None and "hrp" in df.columns:
-        hrp = pd.to_numeric(df["hrp"], errors="coerce")
-        df = df.loc[np.isclose(hrp, args.hrp, rtol=0, atol=args.hrp_atol)].copy()
-    if args.filter_ctrl and "ctrl" in df.columns:
-        ctrl = pd.to_numeric(df["ctrl"], errors="coerce").fillna(0)
-        df = df.loc[ctrl == 0].copy()
+    normalized_columns = [str(c).strip().lower() for c in df.columns]
+    duplicate_columns = sorted(
+        {c for c, count in Counter(normalized_columns).items() if count > 1}
+    )
+    if duplicate_columns:
+        raise ValueError(
+            f"{path.name}: duplicate columns after case normalization: {duplicate_columns}"
+        )
+    df.columns = normalized_columns
+    input_rows = len(df)
+
+    if args.target is None or not str(args.target).strip():
+        raise ValueError("--target must explicitly name an objective column.")
+    args.target = str(args.target).strip().lower()
+    if args.target not in UNIFIED_OBJECTIVES:
+        raise ValueError(
+            f"Target {args.target!r} is not a unified objective. "
+            f"Choose one of {LOADER_OBJECTIVE_COLS}."
+        )
     if args.target not in df.columns:
-        raise KeyError(f"Target column '{args.target}' not found in {list(df.columns)}")
+        objectives = [
+            c for c in sorted(UNIFIED_OBJECTIVES)
+            if c in df.columns
+        ]
+        raise KeyError(
+            f"Target column {args.target!r} not found. Available objectives: {objectives}"
+        )
+    if args.target in FEATURE_WHITELIST or args.target in {"hrp", "ctrl"}:
+        raise ValueError(f"Target {args.target!r} is a recipe feature or metadata column.")
 
-    present = [c for c in FEATURE_WHITELIST if c in df.columns]
-    missing_ess = [e for e in ESSENTIALS if e not in present]
-    if missing_ess:
-        raise KeyError(f"Missing essential columns: {missing_ess}")
-    additives = [c for c in present if c not in ESSENTIALS]
-    codec = FlatCodec(essentials=ESSENTIALS, additives=additives, k_max=args.k_max)
+    required_features = ESSENTIALS + ADDITIVES
+    missing_features = [c for c in required_features if c not in df.columns]
+    if missing_features:
+        raise KeyError(
+            f"{path.name}: the unified add-BO contract requires all 22 additives; "
+            f"missing feature columns={missing_features}"
+        )
+    if "hrp" not in df.columns:
+        raise KeyError(f"{path.name}: missing required HRP column 'hrp'.")
+
+    df["hrp"] = _numeric_series(df, "hrp", path=path)
+    if (df["hrp"] <= 0.0).any():
+        raise ValueError(f"{path.name}: HRP must be strictly positive.")
+    available_hrp = np.sort(df["hrp"].unique())
+    if args.hrp is None:
+        if len(available_hrp) != 1:
+            raise ValueError(
+                "HRP is not encoded as an add-BO feature. This table contains "
+                f"multiple HRP levels {available_hrp.tolist()}; pass --hrp explicitly."
+            )
+        args.hrp = float(available_hrp[0])
+    if not np.isfinite(float(args.hrp)):
+        raise ValueError("--hrp must be finite.")
+    if not np.isfinite(args.hrp_atol) or args.hrp_atol < 0.0:
+        raise ValueError("--hrp_atol must be finite and non-negative.")
+    hrp_match = np.isclose(df["hrp"], float(args.hrp), rtol=0.0, atol=args.hrp_atol)
+    if not hrp_match.any():
+        raise ValueError(
+            f"Requested HRP={args.hrp} matched no rows; available={available_hrp.tolist()}"
+        )
+    df = df.loc[hrp_match].copy()
+    selected_hrp = np.sort(df["hrp"].unique())
+    if len(selected_hrp) != 1:
+        raise ValueError(
+            f"HRP tolerance matched multiple levels {selected_hrp.tolist()}; reduce --hrp_atol."
+        )
+    args.hrp = float(selected_hrp[0])
+
+    requested_batches = getattr(args, "batch", None)
+    if "batch" in df.columns:
+        batch_text = df["batch"].astype("string").str.strip()
+        if batch_text.isna().any() or batch_text.eq("").any():
+            raise ValueError(f"{path.name}: Batch labels must be non-empty.")
+        df["batch"] = batch_text.astype(str)
+    if requested_batches is not None:
+        if "batch" not in df.columns:
+            raise KeyError("--batch was supplied but the input table has no Batch column.")
+        requested = [str(v) for v in requested_batches]
+        available_batches = sorted(df["batch"].astype(str).unique())
+        missing_batches = [v for v in requested if v not in available_batches]
+        if missing_batches:
+            raise ValueError(
+                f"Requested Batch labels {missing_batches} are absent; "
+                f"available={available_batches}"
+            )
+        df = df.loc[df["batch"].astype(str).isin(requested)].copy()
+
+    ctrl_rows_filtered = 0
+    if "ctrl" in df.columns:
+        df["ctrl"] = _numeric_series(df, "ctrl", path=path)
+        if (df["ctrl"] < 0.0).any():
+            raise ValueError(f"{path.name}: CTRL markers must be non-negative.")
+        if args.filter_ctrl:
+            ctrl_rows_filtered = int((df["ctrl"] != 0.0).sum())
+            df = df.loc[df["ctrl"] == 0.0].copy()
+    if df.empty:
+        raise ValueError("No rows remain after HRP, Batch, and CTRL filtering.")
+
+    batch_counts: dict[str, int] = {}
+    if "batch" in df.columns:
+        batch_counts = {
+            str(k): int(v)
+            for k, v in df["batch"].astype(str).value_counts().sort_index().items()
+        }
+        if len(batch_counts) > 1 and not getattr(args, "allow_cross_batch_pooling", False):
+            raise ValueError(
+                "Multiple Batch values remain, while encoded duplicate recipes are "
+                "mean-aggregated and Batch is not a model feature. Select one with "
+                f"--batch or explicitly pass --allow_cross_batch_pooling. Counts={batch_counts}"
+            )
+
+    for column in required_features + [args.target]:
+        df[column] = _numeric_series(df, column, path=path)
+    for essential in ESSENTIALS:
+        outside = ~df[essential].between(CONC_LO, CONC_HI, inclusive="both")
+        if outside.any():
+            examples = df.loc[outside, essential].head(5).tolist()
+            raise ValueError(
+                f"{path.name}: {essential} must lie in [{CONC_LO}, {CONC_HI}]; "
+                f"examples={examples}"
+            )
+    additive_values = df[ADDITIVES]
+    if (additive_values < 0.0).any().any():
+        raise ValueError(f"{path.name}: additive concentrations must be non-negative.")
+    invalid_active = (additive_values > 0.0) & (
+        (additive_values < CONC_LO) | (additive_values > CONC_HI)
+    )
+    if invalid_active.any().any():
+        locations = np.argwhere(invalid_active.to_numpy())[:5]
+        examples = [
+            {
+                "row_index": int(df.index[row]),
+                "additive": ADDITIVES[col],
+                "value": float(additive_values.iloc[row, col]),
+            }
+            for row, col in locations
+        ]
+        raise ValueError(
+            f"{path.name}: active additive concentrations must lie in "
+            f"[{CONC_LO}, {CONC_HI}]; examples={examples}"
+        )
+
+    computed_n_active = (additive_values > EPS).sum(axis=1).astype(int)
+    additive_support_counts = {
+        additive: int((additive_values[additive] > EPS).sum())
+        for additive in ADDITIVES
+    }
+    if int(computed_n_active.max()) == 0:
+        raise ValueError(
+            f"{path.name}: add_bo cannot learn additive effects from ESS-only data; "
+            "include rows with active additives."
+        )
+    unseen_additives = [
+        additive for additive, count in additive_support_counts.items() if count == 0
+    ]
+    if unseen_additives:
+        raise ValueError(
+            f"{path.name}: the 46D search can activate every additive, but the selected "
+            f"training rows contain no active examples for {unseen_additives}."
+        )
+    if "n_active" in df.columns:
+        observed_n_active = _numeric_series(df, "n_active", path=path)
+        mismatch = observed_n_active != computed_n_active
+        if mismatch.any():
+            rows = df.index[mismatch][:5].tolist()
+            raise ValueError(
+                f"{path.name}: n_active disagrees with additive columns; row indices={rows}"
+            )
+        df["n_active"] = observed_n_active.astype(int)
+    if "is_ess_only" in df.columns:
+        observed_ess = _boolean_series(df["is_ess_only"], label="is_ess_only", path=path)
+        mismatch = observed_ess != (computed_n_active == 0)
+        if mismatch.any():
+            rows = df.index[mismatch][:5].tolist()
+            raise ValueError(
+                f"{path.name}: is_ess_only disagrees with additive columns; row indices={rows}"
+            )
+        df["is_ess_only"] = observed_ess
+    if "composition_type" in df.columns:
+        expected = computed_n_active.map(
+            lambda n: "ess" if n == 0 else "sa" if n == 1 else "pa" if n == 2 else "higher_order"
+        )
+        observed = df["composition_type"].astype(str).str.strip().str.lower()
+        mismatch = observed != expected
+        if mismatch.any():
+            rows = df.index[mismatch][:5].tolist()
+            raise ValueError(
+                f"{path.name}: composition_type disagrees with additive columns; "
+                f"row indices={rows}"
+            )
+    if "source_layout" in df.columns:
+        source_layout = df["source_layout"].astype(str).str.strip().str.lower()
+        invalid = ~source_layout.isin({"essentials", "additive"})
+        if invalid.any():
+            examples = df.loc[invalid, "source_layout"].head(5).tolist()
+            raise ValueError(f"{path.name}: invalid source_layout values; examples={examples}")
+        df["source_layout"] = source_layout
+
+    provenance = ["source_file", "source_sheet", "source_row"]
+    present_provenance = [c for c in provenance if c in df.columns]
+    if present_provenance and len(present_provenance) != len(provenance):
+        raise KeyError(f"{path.name}: incomplete provenance columns {present_provenance}")
+    if all(c in df.columns for c in provenance):
+        if df[provenance].isna().any().any():
+            raise ValueError(f"{path.name}: provenance columns contain missing values.")
+        duplicated = df.duplicated(provenance, keep=False)
+        if duplicated.any():
+            examples = df.loc[duplicated, provenance].head(5).to_dict("records")
+            raise ValueError(f"{path.name}: duplicate provenance rows; examples={examples}")
+    if "n_frames" in df.columns:
+        n_frames = _numeric_series(df, "n_frames", path=path)
+        if (
+            (n_frames < 2).any()
+            or (n_frames != np.floor(n_frames)).any()
+            or n_frames.nunique() != 1
+        ):
+            raise ValueError(f"{path.name}: n_frames must be one common value >= 2.")
+        df["n_frames"] = n_frames.astype(int)
+
+    if not isinstance(args.k_max, int) or not 0 <= args.k_max <= len(ADDITIVES):
+        raise ValueError(f"--k_max must be an integer in [0, {len(ADDITIVES)}].")
+    df.attrs["load_audit"] = {
+        "input_rows": int(input_rows),
+        "selected_hrp": float(selected_hrp[0]),
+        "ctrl_rows_filtered": int(ctrl_rows_filtered),
+        "batch_counts": batch_counts,
+        "additive_support_counts": additive_support_counts,
+        "cross_batch_pooling_allowed": bool(
+            getattr(args, "allow_cross_batch_pooling", False)
+        ),
+    }
+    codec = FlatCodec(essentials=ESSENTIALS, additives=ADDITIVES, k_max=args.k_max)
     return df, codec
 
 
@@ -727,18 +981,35 @@ def encode_training_data(
     y_np = ensure_2d_y(df[target_col].values)
     unique_Z, _, inverse = np.unique(Z_np, axis=0, return_index=True, return_inverse=True)
     n_duplicates = len(Z_np) - len(unique_Z)
+    group_counts = np.bincount(inverse, minlength=len(unique_Z))
+    duplicate_groups = int((group_counts > 1).sum())
+    cross_batch_duplicate_groups = 0
+    if "batch" in df.columns:
+        batch_values = df["batch"].astype(str).to_numpy()
+        cross_batch_duplicate_groups = sum(
+            int(np.unique(batch_values[inverse == i]).size > 1)
+            for i in np.flatnonzero(group_counts > 1)
+        )
     if n_duplicates > 0:
         unique_y = np.array([np.mean(y_np[inverse == i]) for i in range(len(unique_Z))])
         Z_np = unique_Z
         y_np = ensure_2d_y(unique_y)
     X = torch.tensor(Z_np, dtype=torch.double, device=device)
     Y = torch.tensor(y_np, dtype=torch.double, device=device)
+    model_y = Y.detach().cpu().numpy().reshape(-1)
     meta = {
         "raw_rows": int(len(df)),
         "unique_encoded_rows": int(X.shape[0]),
         "duplicates_merged": int(n_duplicates),
+        "duplicate_recipe_groups": duplicate_groups,
+        "cross_batch_duplicate_recipe_groups": int(cross_batch_duplicate_groups),
         "encoded_dim": int(X.shape[1]),
         "n_additives": int(codec.A),
+        "model_target_mean": float(np.mean(model_y)),
+        "model_target_std": float(np.std(model_y, ddof=1)) if len(model_y) > 1 else math.nan,
+        "model_target_min": float(np.min(model_y)),
+        "model_target_max": float(np.max(model_y)),
+        **df.attrs.get("load_audit", {}),
     }
     return X, Y, meta
 
@@ -1288,13 +1559,24 @@ def dataset_summary(df: pd.DataFrame, codec: FlatCodec, target: str) -> dict[str
     active = (df[codec.adds].fillna(0).to_numpy() > EPS).sum(axis=1)
     over_hi = (df[codec.adds] > CONC_HI).sum()
     over_hi = over_hi[over_hi > 0].sort_values(ascending=False)
+    batch_counts = (
+        {str(k): int(v) for k, v in df["batch"].astype(str).value_counts().items()}
+        if "batch" in df.columns else {}
+    )
     return {
         "rows_after_filters": int(len(df)),
+        "hrp_values": sorted(float(v) for v in df["hrp"].unique()),
+        "batch_counts": batch_counts,
+        "target_statistics_level": (
+            "filtered_replicate_rows_before_encoded_recipe_mean_aggregation"
+        ),
         "target_mean": float(df[target].mean()),
         "target_std": float(df[target].std(ddof=1)),
         "target_min": float(df[target].min()),
         "target_max": float(df[target].max()),
         "active_count_dist": dict(Counter(int(v) for v in active)),
+        "observed_max_active": int(active.max()),
+        "candidate_k_max": int(codec.k_max),
         "rows_any_additive_gt_encoding_hi": int((df[codec.adds] > CONC_HI).any(axis=1).sum()),
         "additive_gt_encoding_hi_counts": {k: int(v) for k, v in over_hi.to_dict().items()},
     }
@@ -1364,6 +1646,7 @@ def run(args: argparse.Namespace) -> None:
                 args=args,
                 label=label,
             )
+            cand_df.insert(0, "HRP", float(args.hrp))
             diagnostics.update(cand_info)
             candidate_frames.append(cand_df)
             cand_path = output_dir / f"{label}_candidates.csv"
@@ -1429,11 +1712,46 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
 
     data = p.add_argument_group("Data input and filtering")
-    data.add_argument("--input", type=str, default="data_corrected.xlsx")
+    data.add_argument(
+        "--input",
+        type=str,
+        required=True,
+        help=(
+            "Unified .xlsx/.xls/.csv produced by data_loader_objectives, with "
+            "active training support for all 22 candidate additives."
+        ),
+    )
     data.add_argument("--sheet", type=str, default="Corrected Data")
-    data.add_argument("--target", type=str, default="intensity")
-    data.add_argument("--hrp", type=float, default=0.0001)
+    data.add_argument(
+        "--target",
+        type=str,
+        required=True,
+        help=(
+            "Required unified objective: max_intensity, reaction_speed, "
+            "color_retention, or AUC (matching is case-insensitive)."
+        ),
+    )
+    data.add_argument(
+        "--hrp",
+        type=float,
+        default=None,
+        help="Required when the input contains multiple HRP levels; HRP is not encoded.",
+    )
     data.add_argument("--hrp_atol", type=float, default=1e-12)
+    data.add_argument(
+        "--batch",
+        nargs="+",
+        default=None,
+        help="Optional exact Batch label(s) to retain before duplicate aggregation.",
+    )
+    data.add_argument(
+        "--allow_cross_batch_pooling",
+        action="store_true",
+        help=(
+            "Explicitly allow identical encoded recipes from multiple Batches to "
+            "be pooled by the existing target-mean duplicate policy."
+        ),
+    )
     data.add_argument(
         "--filter_ctrl",
         action=argparse.BooleanOptionalAction,
@@ -1552,7 +1870,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     args = parser.parse_args(argv)
     profiles = parser.bo_profiles  # type: ignore[attr-defined]
     valid_dests = {action.dest for action in parser._actions}
-    return apply_bo_profile(args, explicit_arg_dests(parser, argv), profiles, valid_dests)
+    args = apply_bo_profile(args, explicit_arg_dests(parser, argv), profiles, valid_dests)
+    valid_models = {label for label, _ in MODEL_BUILDERS}
+    invalid_models = sorted(set(args.models) - valid_models)
+    if invalid_models:
+        raise ValueError(
+            f"BO profile or CLI selected unavailable model(s) {invalid_models}; "
+            f"available={sorted(valid_models)}"
+        )
+    return args
 
 
 if __name__ == "__main__":

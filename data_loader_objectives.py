@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 import sys
-from typing import Iterable, Mapping, Sequence
+from typing import Mapping, Sequence
 
 import numpy as np
 import pandas as pd
@@ -34,10 +34,10 @@ DATA_LOADER_CONFIG: dict[str, object] = {
         "logs/Jul_9_full_log/0.001_SA.xlsx",
         "logs/Jul_9_full_log/0.01_SA.xlsx",
         "logs/Jul_9_full_log/0.1_SA.xlsx",
-        "logs/Jul_1_full_log/7_1_BO3.xlsx",
-        "logs/Jul_1_full_log/7_1_BO2.xlsx",
-        "logs/Jul_1_full_log/7_1_BO1.xlsx",
-        "logs/Jul_1_full_log/7_1_LHS.xlsx",
+        "logs/Jul_9_full_log/7_1_BO3.xlsx",
+        "logs/Jul_9_full_log/7_1_BO2.xlsx",
+        "logs/Jul_9_full_log/7_1_BO1.xlsx",
+        "logs/Jul_9_full_log/7_1_LHS.xlsx",
     ],
     "output": "logs/Jul_9_full_log/ESS_SA_PA.xlsx",
     "overwrite": True,
@@ -66,13 +66,24 @@ def hampel_isolated_spikes(
     """
     Conservative repair for isolated frame spikes.
 
-    A point is replaced by the local-neighbor median only if it is both far in
-    robust-MAD units and far in absolute magnitude. This is intentionally mild.
+    A point is eligible only if it is a strict local extremum relative to its
+    immediate neighbors. It is then replaced by the local-neighbor median only
+    if it is both far in robust-MAD units and far in absolute magnitude. This
+    avoids treating steep monotonic kinetics as isolated spikes.
     """
     y = np.asarray(y, dtype=float)
     out = y.copy()
     n = len(y)
     for i in range(n):
+        if i == 0 or i == n - 1:
+            continue
+        is_local_extremum = (
+            (y[i] > y[i - 1] and y[i] > y[i + 1])
+            or (y[i] < y[i - 1] and y[i] < y[i + 1])
+        )
+        if not is_local_extremum:
+            continue
+
         lo = max(0, i - window)
         hi = min(n, i + window + 1)
         neighbors = np.concatenate([y[lo:i], y[i + 1: hi]])
@@ -548,32 +559,6 @@ def run_configured_loader(
     return combined
 
 
-def summarize_replicates(rep: pd.DataFrame, group_cols: Iterable[str]) -> pd.DataFrame:
-    group_cols = list(group_cols)
-    objective_cols = ["max_intensity", "reaction_speed", "color_retention", "AUC"]
-
-    pieces = []
-    grouped = rep.groupby(group_cols, as_index=False)
-    for obj in objective_cols:
-        tmp = grouped[obj].agg(
-            **{
-                f"{obj}_mean": "mean",
-                f"{obj}_median": "median",
-                f"{obj}_sd": lambda s: float(s.std(ddof=1)) if len(s) > 1 else np.nan,
-                f"{obj}_sem": lambda s: float(s.std(ddof=1) / np.sqrt(len(s))) if len(s) > 1 else np.nan,
-                f"{obj}_min": "min",
-                f"{obj}_max": "max",
-            }
-        )
-        pieces.append(tmp)
-
-    summary = pieces[0]
-    for tmp in pieces[1:]:
-        summary = summary.merge(tmp, on=group_cols, how="outer")
-    summary["n"] = rep.groupby(group_cols).size().to_numpy()
-    return summary.sort_values(group_cols).reset_index(drop=True)
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
@@ -584,37 +569,37 @@ def main() -> None:
     parser.add_argument(
         "--inputs",
         nargs="+",
-        default=None,
-        help=(
-            "Input .xlsx/.xls/.csv paths for unified mixed loading. If omitted, "
-            "the legacy date-prefix/run-type workflow is used."
-        ),
+        required=True,
+        help="Input .xlsx/.xls/.csv paths combined into one unified table.",
     )
     parser.add_argument(
         "--batches",
         nargs="+",
         default=None,
-        help="Optional batch labels matching --inputs; defaults to each file stem.",
+        help=(
+            "Optional batch labels matching --inputs; defaults to each file stem. "
+            "Downstream round inference accepts stems such as 7_1_LHS or 7_1_BO2."
+        ),
     )
     parser.add_argument(
         "--output",
-        default="combined_objectives.xlsx",
-        help="Unified output path used with --inputs.",
+        required=True,
+        help="Unified output path (.xlsx/.xls/.csv).",
     )
     parser.add_argument(
         "--overwrite",
         action="store_true",
-        help="Allow unified mode to replace an existing output file.",
+        help="Allow the run to replace an existing output file.",
     )
     parser.add_argument(
         "--input_sheet",
         default="Sheet1",
-        help="Worksheet read from every Excel input in unified mode.",
+        help="Worksheet read from every Excel input.",
     )
     parser.add_argument(
         "--output_sheet",
         default="Corrected Data",
-        help="Worksheet name for unified Excel output.",
+        help="Worksheet name for Excel output.",
     )
     parser.add_argument(
         "--max_active",
@@ -624,36 +609,6 @@ def main() -> None:
             "Optional maximum active-additive count per row. The default allows "
             "SA, PA, and future higher-order recipes."
         ),
-    )
-    parser.add_argument(
-        "--run_type",
-        type=str,
-        default="BO3",
-        choices=["LHS", "BO1", "BO2", "BO3"],
-    )
-    parser.add_argument(
-        "--input_dir",
-        default="./logs/Jul_1_full_log",
-        help="Directory containing the legacy essentials-only input file.",
-    )
-    parser.add_argument(
-        "--input_date_prefix",
-        default="7_1",
-        help="Date prefix used in the legacy input filename.",
-    )
-    parser.add_argument("--output_dir", default="./logs/Jul_1_full_log")
-    parser.add_argument("--hrp", type=float, nargs="+", default=[0.001, 0.01, 0.1],
-                        help="List of HRP values to process.")
-    parser.add_argument(
-        "--generate_summary",
-        action="store_true",
-        help="Generate a summary output file with mean/sd/sem per condition for each HRP.",
-    )
-    parser.add_argument(
-        "--keep_all_hrp",
-        action=argparse.BooleanOptionalAction,
-        default=True,
-        help="Do not filter HRP; keep all HRP levels in one file.",
     )
     parser.add_argument("--baseline", type=float, default=16.0,
                         help="Baseline intensity to subtract before feature extraction.")
@@ -667,134 +622,28 @@ def main() -> None:
         action="store_true",
         help="Disable conservative isolated-spike repair.",
     )
-    parser.add_argument(
-        "--add_trace_cols",
-        action="store_true",
-        help="Append replicate_id and source_row for traceability. Off by default.",
-    )
     args = parser.parse_args()
 
     if args.max_active is not None and args.max_active < 0:
         parser.error("--max_active must be non-negative.")
 
-    if args.inputs:
-        run_configured_loader(
-            {
-                "files": args.inputs,
-                "batches": args.batches,
-                "output": args.output,
-                "output_sheet": args.output_sheet,
-                "overwrite": args.overwrite,
-                "input_sheet": args.input_sheet,
-                "baseline": args.baseline,
-                "signal_threshold": args.signal_threshold,
-                "retention_last_n": args.retention_last_n,
-                "smooth_window": args.smooth_window,
-                "auc_method": args.auc_method,
-                "use_filter": not args.no_filter,
-                "max_active": args.max_active,
-            }
-        )
-        return
-
-    if args.batches is not None:
-        parser.error("--batches requires --inputs.")
-
-    # 动态生成输入文件路径
-    input_filename = f"{args.input_date_prefix}_{args.run_type}.xlsx"
-    input_path = Path(args.input_dir) / input_filename
-
-    if not input_path.exists():
-        raise FileNotFoundError(f"Input not found: {input_path}")
-
-    df_full = read_table(input_path)
-
-    for col in ["HRP", "TMB", "H2O2"]:
-        if col not in df_full.columns:
-            raise ValueError(f"Missing required column: {col}")
-
-    output_dir = Path(args.output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    # 如果启用了 keep_all_hrp，只需处理一次，且不传入特定的 HRP；否则按照提供的列表循环
-    hrps_to_process = [None] if args.keep_all_hrp else args.hrp
-
-    for current_hrp in hrps_to_process:
-        if current_hrp is not None:
-            df = df_full[np.isclose(df_full["HRP"].astype(float), current_hrp)].copy()
-            if df.empty:
-                print(f"Warning: No rows matched --hrp {current_hrp}. Skipping this value.")
-                continue
-
-            # 格式化数字：若为整数形式显示1，否则显示0.01等
-            hrp_str = str(int(current_hrp)) if float(current_hrp).is_integer() else str(current_hrp)
-            # 输出文件名：加上日期前缀
-            output_name = f"{args.input_date_prefix}_{args.run_type}_HRP_{hrp_str}_res.xlsx"
-        else:
-            df = df_full.copy()
-            # 全量输出文件名：加上日期前缀
-            output_name = f"{args.input_date_prefix}_{args.run_type}_HRP_all_res.xlsx"
-            hrp_str = "all"
-
-        output_path = output_dir / output_name
-
-        frame_cols = find_frame_cols(df)
-
-        rows: list[dict[str, float | int]] = []
-        for raw_idx, row in df.iterrows():
-            y = row[frame_cols].to_numpy(dtype=float)
-            if np.isnan(y).any():
-                raise ValueError(
-                    f"NaN found in frame columns at input row index {raw_idx}. Please inspect the raw file first.")
-            if not args.no_filter:
-                y = hampel_isolated_spikes(y)
-
-            features = extract_objectives(
-                y,
-                baseline=args.baseline,
-                signal_threshold=args.signal_threshold,
-                retention_last_n=args.retention_last_n,
-                smooth_window=args.smooth_window,
-                auc_method=args.auc_method,
-            )
-            rows.append(
-                {
-                    "HRP": float(row["HRP"]),
-                    "TMB": float(row["TMB"]),
-                    "H2O2": float(row["H2O2"]),
-                    **features,
-                    "source_row": int(raw_idx),
-                }
-            )
-
-        rep = pd.DataFrame(rows)
-        group_cols = ["HRP", "TMB", "H2O2"] if (args.keep_all_hrp or len(np.unique(rep["HRP"])) > 1) else ["TMB",
-                                                                                                           "H2O2"]
-
-        # Assign replicate number within each physical condition.
-        rep = rep.sort_values(group_cols + ["source_row"]).reset_index(drop=True)
-        rep["replicate_id"] = rep.groupby(group_cols).cumcount() + 1
-
-        col_order = ["HRP", "TMB", "H2O2", "max_intensity", "reaction_speed", "color_retention", "AUC"]
-        if args.add_trace_cols:
-            col_order += ["replicate_id", "source_row"]
-        rep = rep[col_order]
-
-        write_table(rep, output_path)
-
-        counts = rep.groupby(["HRP", "TMB", "H2O2"]).size()
-        print(f"\n--- Processing [{args.input_date_prefix}_{args.run_type}] HRP = {hrp_str} ---")
-        print(f"Saved replicate-level objective data: {len(rep)} rows -> {output_path.resolve()}")
-        print(f"Unique conditions: {counts.size}")
-        print(f"Replicate count per condition: min={counts.min()}, median={counts.median():.0f}, max={counts.max()}")
-
-        if args.generate_summary:
-            summary = summarize_replicates(rep, group_cols)
-            # Summary文件：加上日期前缀
-            summary_name = f"{args.input_date_prefix}_{args.run_type}_summary_HRP_{hrp_str}.xlsx"
-            summary_path = output_dir / summary_name
-            write_table(summary, summary_path)
-            print(f"Saved replicate summary: {len(summary)} rows -> {summary_path.resolve()}")
+    run_configured_loader(
+        {
+            "files": args.inputs,
+            "batches": args.batches,
+            "output": args.output,
+            "output_sheet": args.output_sheet,
+            "overwrite": args.overwrite,
+            "input_sheet": args.input_sheet,
+            "baseline": args.baseline,
+            "signal_threshold": args.signal_threshold,
+            "retention_last_n": args.retention_last_n,
+            "smooth_window": args.smooth_window,
+            "auc_method": args.auc_method,
+            "use_filter": not args.no_filter,
+            "max_active": args.max_active,
+        }
+    )
 
 
 if __name__ == "__main__":

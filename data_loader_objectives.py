@@ -25,21 +25,21 @@ UNIFIED_TRACE_COLS = [
 # Quick-run entry: edit only "files" (and optionally "output"), then run this file.
 DATA_LOADER_CONFIG: dict[str, object] = {
     "files": [
-        "logs/Jul_9_full_log/0.001_PA_res_2.xlsx",
-        "logs/Jul_9_full_log/0.001_PA_res_1.xlsx",
-        "logs/Jul_9_full_log/0.01_PA_res_2.xlsx",
-        "logs/Jul_9_full_log/0.01_PA_res_1.xlsx",
-        "logs/Jul_9_full_log/0.1_PA_res_2.xlsx",
-        "logs/Jul_9_full_log/0.1_PA_res_1.xlsx",
-        "logs/Jul_9_full_log/0.001_SA_res.xlsx",
-        "logs/Jul_9_full_log/0.01_SA_res.xlsx",
-        "logs/Jul_9_full_log/0.1_SA_res.xlsx",
+        "logs/Jul_9_full_log/0.001_PA_2.xlsx",
+        "logs/Jul_9_full_log/0.001_PA_1.xlsx",
+        "logs/Jul_9_full_log/0.01_PA_2.xlsx",
+        "logs/Jul_9_full_log/0.01_PA_1.xlsx",
+        "logs/Jul_9_full_log/0.1_PA_2.xlsx",
+        "logs/Jul_9_full_log/0.1_PA_1.xlsx",
+        "logs/Jul_9_full_log/0.001_SA.xlsx",
+        "logs/Jul_9_full_log/0.01_SA.xlsx",
+        "logs/Jul_9_full_log/0.1_SA.xlsx",
         "logs/Jul_1_full_log/7_1_BO3.xlsx",
         "logs/Jul_1_full_log/7_1_BO2.xlsx",
         "logs/Jul_1_full_log/7_1_BO1.xlsx",
         "logs/Jul_1_full_log/7_1_LHS.xlsx",
     ],
-    "output": "logs/Jul_9_full_log/All_data_upto_PA.xlsx",
+    "output": "logs/Jul_9_full_log/ESS_SA_PA.xlsx",
     "overwrite": True,
 }
 
@@ -655,14 +655,18 @@ def main() -> None:
         default=True,
         help="Do not filter HRP; keep all HRP levels in one file.",
     )
-    parser.add_argument("--baseline", type=float, default=10.0,
+    parser.add_argument("--baseline", type=float, default=16.0,
                         help="Baseline intensity to subtract before feature extraction.")
     parser.add_argument("--signal_threshold", type=float, default=5.0)
     parser.add_argument("--retention_last_n", type=int, default=5, help="Number of final frames used for retention.")
     parser.add_argument("--smooth_window", type=int, default=5,
                         help="Odd window size for centered moving-average smoothing.")
     parser.add_argument("--auc_method", choices=["trapz", "sum"], default="trapz")
-    parser.add_argument("--no_filter", action="store_true", help="Disable conservative isolated-spike repair")
+    parser.add_argument(
+        "--no_filter",
+        action="store_true",
+        help="Disable conservative isolated-spike repair.",
+    )
     parser.add_argument(
         "--add_trace_cols",
         action="store_true",

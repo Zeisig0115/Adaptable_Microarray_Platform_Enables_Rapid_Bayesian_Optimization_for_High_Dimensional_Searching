@@ -17,14 +17,18 @@ ADDITIVE_COLS = [
 ]
 CONTROL_COLS = ["NaN3", "NaN4"]
 OBJECTIVE_COLS = ["max_intensity", "reaction_speed", "color_retention", "AUC"]
+PLATE_ROWS = 16
+PLATE_COLS = 24
+PLATE_WELLS = PLATE_ROWS * PLATE_COLS
 UNIFIED_TRACE_COLS = [
     "composition_type", "is_ess_only", "n_active", "n_frames", "source_layout",
-    "source_file", "source_sheet", "source_row",
+    "source_file", "source_sheet", "source_row", "plate_pos",
 ]
 
 # Quick-run entry: edit only "files" (and optionally "output"), then run this file.
 DATA_LOADER_CONFIG: dict[str, object] = {
     "files": [
+        "logs/Jul_9_full_log/0.001_CTRL.xlsx",
         "logs/Jul_9_full_log/0.001_PA_2.xlsx",
         "logs/Jul_9_full_log/0.001_PA_1.xlsx",
         "logs/Jul_9_full_log/0.01_PA_2.xlsx",
@@ -39,7 +43,7 @@ DATA_LOADER_CONFIG: dict[str, object] = {
         "logs/Jul_9_full_log/7_1_BO1.xlsx",
         "logs/Jul_9_full_log/7_1_LHS.xlsx",
     ],
-    "output": "logs/Jul_9_full_log/ESS_SA_PA.xlsx",
+    "output": "logs/Jul_9_full_log/ESS_SA_PA_CTRL.xlsx",
     "overwrite": True,
 }
 
@@ -290,6 +294,20 @@ def _composition_type(n_active: int) -> str:
     return "higher_order"
 
 
+def source_row_to_plate_pos(source_row: int) -> str:
+    """Map a zero-based raw row to a one-based 16-by-24 plate position."""
+    if isinstance(source_row, bool) or not isinstance(source_row, (int, np.integer)):
+        raise TypeError("source_row must be an integer.")
+    source_row = int(source_row)
+    if not 0 <= source_row < PLATE_WELLS:
+        raise ValueError(
+            f"source_row must be in [0, {PLATE_WELLS - 1}] for a "
+            f"{PLATE_ROWS}x{PLATE_COLS} plate; received {source_row}."
+        )
+    plate_row, plate_col = divmod(source_row, PLATE_COLS)
+    return f"({plate_row + 1},{plate_col + 1})"
+
+
 def _validate_processing_options(
         *,
         baseline: float,
@@ -346,6 +364,11 @@ def process_mixed_input(
     df = read_table(path, sheet_name=input_sheet)
     if df.empty:
         raise ValueError(f"{path.name}: input table contains no data rows.")
+    if len(df) != PLATE_WELLS:
+        raise ValueError(
+            f"{path.name}: plate-position mapping requires exactly {PLATE_WELLS} "
+            f"rows in unfiltered row-major order; observed {len(df)}."
+        )
     layout, frame_cols = detect_input_layout(df, path)
     if len(frame_cols) < 2:
         raise ValueError(f"{path.name}: at least two frame columns are required.")
@@ -431,6 +454,7 @@ def process_mixed_input(
                 "source_file": str(path.resolve()),
                 "source_sheet": str(input_sheet),
                 "source_row": source_row,
+                "plate_pos": source_row_to_plate_pos(source_row),
             }
         )
         out_rows.append(rec)
